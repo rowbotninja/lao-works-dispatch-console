@@ -1,0 +1,179 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+:root {
+  --bg-0: #081019;
+  --bg-1: #112338;
+  --panel: rgba(9, 17, 29, 0.82);
+  --line: rgba(147, 206, 255, 0.2);
+  --text: #d7eaf9;
+  --muted: #8aa2b7;
+  --accent: #7be0ff;
+  --danger: #ff7f6e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 12% 18%, #26537a 0%, transparent 42%),
+    radial-gradient(circle at 88% 12%, #143753 0%, transparent 38%),
+    linear-gradient(135deg, var(--bg-0), var(--bg-1));
+  min-height: 100vh;
+}
+
+.auth-shell,
+.app-shell {
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.auth-card,
+.panel {
+  backdrop-filter: blur(10px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+}
+
+.auth-card {
+  max-width: 420px;
+  margin: 7rem auto;
+  padding: 1.5rem;
+}
+
+input,
+button {
+  font: inherit;
+}
+
+label,
+.actions {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+input {
+  background: #0f1f31;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(110deg, #41c2ff, #7be0ff);
+  color: #00131f;
+  font-weight: 700;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.grid-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr 1fr;
+  gap: 0.9rem;
+}
+
+.panel {
+  padding: 1rem;
+  min-height: 76vh;
+  overflow: auto;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.job {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.15rem;
+  margin-bottom: 0.5rem;
+  background: rgba(9, 19, 33, 0.8);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.job.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+small,
+span {
+  color: var(--muted);
+}
+
+pre {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  white-space: pre-wrap;
+  color: #c8ebff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.5rem;
+  vertical-align: top;
+}
+
+.messages {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.messages article {
+  background: rgba(6, 14, 26, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.compose {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+}
+
+.error {
+  color: var(--danger);
+}
+
+@media (max-width: 1080px) {
+  .grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    min-height: auto;
+  }
+}
