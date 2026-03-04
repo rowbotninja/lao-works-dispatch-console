@@ -53,6 +53,16 @@ export type TimelineEvent = {
   createdAt: string;
 };
 
+export type JobReadReceipt = {
+  id: string;
+  subjectType: "change_order" | "payment_request" | "message" | "dispute_info_request" | "invoice";
+  subjectId: string;
+  readerUserId: string | null;
+  readerRole: string;
+  deliveredAt: string | null;
+  readAt: string;
+};
+
 export type Message = {
   id: string;
   threadId: string;

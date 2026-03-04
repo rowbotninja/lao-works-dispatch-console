@@ -8,6 +8,7 @@ import {
   getMapOverview,
   getMessages,
   getQueue,
+  getReadReceipts,
   getTimeline,
   login,
   recomputeCandidates,
@@ -15,7 +16,7 @@ import {
   overrideWorker,
   runJobAction
 } from "./api";
-import { Candidate, DispatchCalendar, DispatchMapOverview, Job, MapScope, Message, TimelineEvent } from "./types";
+import { Candidate, DispatchCalendar, DispatchMapOverview, Job, JobReadReceipt, MapScope, Message, TimelineEvent } from "./types";
 
 const LeafletMapContainer = MapContainer as unknown as (props: any) => JSX.Element;
 const LeafletTileLayer = TileLayer as unknown as (props: any) => JSX.Element;
@@ -29,7 +30,7 @@ type Session = {
 };
 
 type MessageAudience = "CLIENT" | "WORKER" | "BOTH";
-type FocusPanel = "SIGNALS" | "DETAILS" | "MESSAGES" | "TIMELINE";
+type FocusPanel = "SIGNALS" | "DETAILS" | "MESSAGES" | "TIMELINE" | "PAYMENTS_DISPUTES";
 type OpsTab = "ROUTING" | "SCHEDULING";
 
 type MessageThreadGroup = {
@@ -80,8 +81,40 @@ type MapPoint = {
   status: string;
 };
 
-const JOB_STATUSES = ["REQUESTED", "TRIAGED", "OFFERED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
-type StatusFilter = "ALL" | (typeof JOB_STATUSES)[number];
+type WorkflowActionEvent = {
+  event: TimelineEvent;
+  action: string;
+  workflowActionId: string | null;
+  actionPayload: Record<string, unknown>;
+};
+
+const WORKFLOW_STATUSES = [
+  "DRAFT",
+  "REQUESTED",
+  "DISPATCHING",
+  "OFFERED",
+  "OFFER_EXPIRED",
+  "WORKER_ACCEPTED",
+  "CLIENT_CONFIRMED",
+  "SCHEDULED",
+  "IN_PROGRESS",
+  "WORK_PAUSED",
+  "CHANGE_REQUESTED",
+  "WORK_SUBMITTED",
+  "CLIENT_APPROVED",
+  "AUTO_APPROVED",
+  "PAYMENT_PENDING",
+  "PAYMENT_SUBMITTED",
+  "DISPUTED",
+  "DISPUTE_REVIEW",
+  "DISPUTE_APPROVED",
+  "DISPUTE_REJECTED",
+  "RESOLVED",
+  "NO_SHOW",
+  "COMPLETED",
+  "CANCELLED"
+] as const;
+type StatusFilter = "ALL" | (typeof WORKFLOW_STATUSES)[number];
 
 const URGENCY_LEVELS = ["LOW", "NORMAL", "HIGH", "CRITICAL"] as const;
 type UrgencyFilter = "ALL" | (typeof URGENCY_LEVELS)[number];
@@ -114,13 +147,30 @@ type QueueSort = "NEWEST" | "OLDEST" | "URGENCY" | "STATUS";
 type TimelineFilter = "ALL" | "ASSIGNMENT" | "LIFECYCLE" | "MESSAGING" | "SYSTEM";
 
 const STATUS_SORT_PRIORITY: Record<string, number> = {
-  REQUESTED: 0,
-  TRIAGED: 1,
-  OFFERED: 2,
-  ASSIGNED: 3,
-  IN_PROGRESS: 4,
-  COMPLETED: 5,
-  CANCELLED: 6
+  DRAFT: 0,
+  REQUESTED: 1,
+  DISPATCHING: 2,
+  OFFERED: 3,
+  OFFER_EXPIRED: 4,
+  WORKER_ACCEPTED: 5,
+  CLIENT_CONFIRMED: 6,
+  SCHEDULED: 7,
+  IN_PROGRESS: 8,
+  WORK_PAUSED: 9,
+  CHANGE_REQUESTED: 10,
+  WORK_SUBMITTED: 11,
+  CLIENT_APPROVED: 12,
+  AUTO_APPROVED: 13,
+  PAYMENT_PENDING: 14,
+  PAYMENT_SUBMITTED: 15,
+  DISPUTED: 16,
+  DISPUTE_REVIEW: 17,
+  DISPUTE_APPROVED: 18,
+  DISPUTE_REJECTED: 19,
+  RESOLVED: 20,
+  NO_SHOW: 21,
+  COMPLETED: 22,
+  CANCELLED: 23
 };
 
 const URGENCY_SORT_PRIORITY: Record<string, number> = {
@@ -153,20 +203,6 @@ const formatToken = (value: string): string =>
     .split("_")
     .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1).toLowerCase())
     .join(" ");
-
-const workflowToLegacyStatus = (workflowState: string): string => {
-  const state = normalizeToken(workflowState);
-  if (state === "REQUESTED" || state === "DRAFT") return "REQUESTED";
-  if (state === "DISPATCHING" || state === "OFFER_EXPIRED") return "TRIAGED";
-  if (state === "OFFERED") return "OFFERED";
-  if (state === "WORKER_ACCEPTED" || state === "CLIENT_CONFIRMED" || state === "SCHEDULED") return "ASSIGNED";
-  if (state === "COMPLETED") return "COMPLETED";
-  if (state === "CANCELLED") return "CANCELLED";
-  return "IN_PROGRESS";
-};
-
-const getJobLegacyStatus = (job: Job): string =>
-  job.workflowState ? workflowToLegacyStatus(job.workflowState) : normalizeToken(job.status);
 
 const getJobStatusLabel = (job: Job): string =>
   job.publicStatus?.trim() || formatToken(job.workflowState ?? job.status);
@@ -414,6 +450,33 @@ const getEventWorkerId = (event: TimelineEvent): string | null =>
 const getEventReason = (event: TimelineEvent): string | null =>
   extractPayloadString(event.payload, ["reason", "overrideReason", "override_reason", "dispatchNote"]);
 
+const parseWorkflowActionEvent = (event: TimelineEvent): WorkflowActionEvent | null => {
+  if (normalizeToken(event.eventType) !== "WORKFLOW_ACTION" || !isRecord(event.payload)) {
+    return null;
+  }
+  const actionRaw = event.payload.action;
+  if (typeof actionRaw !== "string" || !actionRaw.trim()) {
+    return null;
+  }
+  return {
+    event,
+    action: normalizeToken(actionRaw),
+    workflowActionId: typeof event.payload.workflowActionId === "string" ? event.payload.workflowActionId : null,
+    actionPayload: isRecord(event.payload.actionPayload) ? event.payload.actionPayload : {}
+  };
+};
+
+const findLatestWorkflowAction = (events: TimelineEvent[], actions: string[]): WorkflowActionEvent | null => {
+  const actionSet = new Set(actions.map((action) => normalizeToken(action)));
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const parsed = parseWorkflowActionEvent(events[index]);
+    if (parsed && actionSet.has(parsed.action)) {
+      return parsed;
+    }
+  }
+  return null;
+};
+
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -545,7 +608,8 @@ const isPastDue = (job: Job): boolean => {
   if (Number.isNaN(windowEnd)) {
     return false;
   }
-  return windowEnd < Date.now() && !["COMPLETED", "CANCELLED"].includes(getJobLegacyStatus(job));
+  const workflowState = normalizeToken(job.workflowState ?? job.status);
+  return windowEnd < Date.now() && !["COMPLETED", "CANCELLED"].includes(workflowState);
 };
 
 const getAudienceLabel = (audience: MessageAudience): string => {
@@ -586,13 +650,29 @@ const getMapPointColor = (point: MapPoint): string => {
     return "#57cbff";
   }
   const status = normalizeToken(point.status);
-  if (status === "IN_PROGRESS") {
+  if (
+    [
+      "IN_PROGRESS",
+      "WORK_PAUSED",
+      "CHANGE_REQUESTED",
+      "WORK_SUBMITTED",
+      "CLIENT_APPROVED",
+      "AUTO_APPROVED",
+      "PAYMENT_PENDING",
+      "PAYMENT_SUBMITTED",
+      "DISPUTED",
+      "DISPUTE_REVIEW",
+      "DISPUTE_APPROVED",
+      "DISPUTE_REJECTED",
+      "RESOLVED"
+    ].includes(status)
+  ) {
     return "#49dd87";
   }
-  if (status === "ASSIGNED") {
+  if (["WORKER_ACCEPTED", "CLIENT_CONFIRMED", "SCHEDULED"].includes(status)) {
     return "#f0c45f";
   }
-  if (status === "REQUESTED" || status === "TRIAGED" || status === "OFFERED") {
+  if (["DRAFT", "REQUESTED", "DISPATCHING", "OFFERED", "OFFER_EXPIRED"].includes(status)) {
     return "#ff9d73";
   }
   return "#c7d8e7";
@@ -628,6 +708,7 @@ function App() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [readReceipts, setReadReceipts] = useState<JobReadReceipt[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [overrideReason, setOverrideReason] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
@@ -651,9 +732,13 @@ function App() {
   const [requestPatchUrgency, setRequestPatchUrgency] = useState("HIGH");
   const [rescheduleStartLocal, setRescheduleStartLocal] = useState("");
   const [rescheduleEndLocal, setRescheduleEndLocal] = useState("");
+  const [paymentConfirmAmount, setPaymentConfirmAmount] = useState("0");
+  const [paymentRejectReasonCode, setPaymentRejectReasonCode] = useState("amount_mismatch");
+  const [disputeDecisionReason, setDisputeDecisionReason] = useState("Reviewed by dispatch");
+  const [requestMoreInfoTargetRole, setRequestMoreInfoTargetRole] = useState("client");
+  const [requestMoreInfoMessage, setRequestMoreInfoMessage] = useState("Please provide additional dispute details.");
   const overrideReasonInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
-  const selectedJobIdRef = useRef<string | null>(null);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? null, [jobs, selectedJobId]);
   const selectedJobActionSet = useMemo(
@@ -690,7 +775,15 @@ function App() {
       Array.from(selectedJobActionSet)
         .filter(
           (action) =>
-            action !== "PRIORITIZE_JOB" && action !== "EDIT_REQUEST_FIELDS_WITH_AUDIT" && action !== "RESCHEDULE"
+            action !== "PRIORITIZE_JOB" &&
+            action !== "EDIT_REQUEST_FIELDS_WITH_AUDIT" &&
+            action !== "RESCHEDULE" &&
+            action !== "CONFIRM_PAYMENT" &&
+            action !== "REJECT_PAYMENT_PROOF" &&
+            action !== "BEGIN_DISPUTE_REVIEW" &&
+            action !== "APPROVE_DISPUTE" &&
+            action !== "REJECT_DISPUTE" &&
+            action !== "REQUEST_MORE_INFO"
         )
         .sort()
         .map((action) => ({
@@ -721,6 +814,54 @@ function App() {
     }
     return timeline.filter((event) => getTimelineCategory(event.eventType) === timelineFilter);
   }, [timeline, timelineFilter]);
+
+  const latestChangeOrderAction = useMemo(
+    () => findLatestWorkflowAction(timeline, ["SUBMIT_CHANGE_ORDER", "MEDIATE_CHANGE_ORDER", "EMERGENCY_OVERRIDE_APPROVAL"]),
+    [timeline]
+  );
+  const latestWorkSubmissionAction = useMemo(() => findLatestWorkflowAction(timeline, ["SUBMIT_WORK"]), [timeline]);
+  const latestPaymentProofAction = useMemo(() => findLatestWorkflowAction(timeline, ["SUBMIT_PAYMENT_PROOF"]), [timeline]);
+  const latestDisputeAction = useMemo(
+    () => findLatestWorkflowAction(timeline, ["OPEN_DISPUTE", "OPEN_DISPUTE_DISPATCH", "APPROVE_DISPUTE", "REJECT_DISPUTE"]),
+    [timeline]
+  );
+  const latestRequestMoreInfoAction = useMemo(() => findLatestWorkflowAction(timeline, ["REQUEST_MORE_INFO"]), [timeline]);
+  const latestChangeOrderPayload = useMemo(() => {
+    const payload = latestChangeOrderAction?.actionPayload;
+    if (!payload) return null;
+    if (isRecord(payload.changeOrder)) return payload.changeOrder;
+    if (isRecord(payload.mediation)) return payload.mediation;
+    if (isRecord(payload.override)) return payload.override;
+    return null;
+  }, [latestChangeOrderAction]);
+  const latestCompletionEvidence = useMemo(() => {
+    const payload = latestWorkSubmissionAction?.actionPayload;
+    if (!payload || !isRecord(payload.completionEvidence)) {
+      return null;
+    }
+    return payload.completionEvidence;
+  }, [latestWorkSubmissionAction]);
+  const latestPaymentProof = useMemo(() => {
+    const payload = latestPaymentProofAction?.actionPayload;
+    if (!payload || !isRecord(payload.paymentProof)) {
+      return null;
+    }
+    return payload.paymentProof;
+  }, [latestPaymentProofAction]);
+  const latestDisputePayload = useMemo(() => {
+    const payload = latestDisputeAction?.actionPayload;
+    if (!payload || !isRecord(payload.dispute)) {
+      return null;
+    }
+    return payload.dispute;
+  }, [latestDisputeAction]);
+  const latestRequestInfoPayload = useMemo(() => {
+    const payload = latestRequestMoreInfoAction?.actionPayload;
+    if (!payload || !isRecord(payload.request)) {
+      return null;
+    }
+    return payload.request;
+  }, [latestRequestMoreInfoAction]);
 
   const groupedMessages = useMemo(() => {
     const groups: MessageDayGroup[] = [];
@@ -776,7 +917,7 @@ function App() {
 
   const filteredJobs = useMemo(() => {
     const visibleJobs = jobs.filter((job) => {
-      const status = getJobLegacyStatus(job);
+      const status = normalizeToken(job.workflowState ?? job.status);
       const urgency = normalizeToken(job.urgency);
       const skillSet = new Set(job.requiredSkills.map(normalizeToken));
       const personalitySet = new Set(job.personalityPreferences.map(normalizeToken));
@@ -801,9 +942,14 @@ function App() {
         return leftPriority - rightPriority;
       }
 
-      const leftPriority = STATUS_SORT_PRIORITY[getJobLegacyStatus(left)] ?? 999;
-      const rightPriority = STATUS_SORT_PRIORITY[getJobLegacyStatus(right)] ?? 999;
-      return leftPriority - rightPriority;
+      const leftStatus = normalizeToken(left.workflowState ?? left.status);
+      const rightStatus = normalizeToken(right.workflowState ?? right.status);
+      const leftPriority = STATUS_SORT_PRIORITY[leftStatus] ?? 999;
+      const rightPriority = STATUS_SORT_PRIORITY[rightStatus] ?? 999;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return Date.parse(right.createdAt) - Date.parse(left.createdAt);
     });
 
     return visibleJobs;
@@ -843,15 +989,32 @@ function App() {
       urgent: 0
     };
     for (const job of filteredJobs) {
-      const status = getJobLegacyStatus(job);
+      const status = normalizeToken(job.workflowState ?? job.status);
       const urgency = normalizeToken(job.urgency);
-      if (status === "REQUESTED" || status === "TRIAGED" || status === "OFFERED") {
+      if (["REQUESTED", "DISPATCHING", "OFFERED", "OFFER_EXPIRED"].includes(status)) {
         stats.requested += 1;
       }
-      if (status === "ASSIGNED") {
+      if (["WORKER_ACCEPTED", "CLIENT_CONFIRMED", "SCHEDULED"].includes(status)) {
         stats.assigned += 1;
       }
-      if (status === "IN_PROGRESS") {
+      if (
+        [
+          "IN_PROGRESS",
+          "WORK_PAUSED",
+          "CHANGE_REQUESTED",
+          "WORK_SUBMITTED",
+          "CLIENT_APPROVED",
+          "AUTO_APPROVED",
+          "PAYMENT_PENDING",
+          "PAYMENT_SUBMITTED",
+          "DISPUTED",
+          "DISPUTE_REVIEW",
+          "DISPUTE_APPROVED",
+          "DISPUTE_REJECTED",
+          "RESOLVED",
+          "NO_SHOW"
+        ].includes(status)
+      ) {
         stats.inProgress += 1;
       }
       if (urgency === "CRITICAL" || urgency === "HIGH") {
@@ -877,8 +1040,8 @@ function App() {
       });
     }
 
-    const status = getJobLegacyStatus(selectedJob);
-    if (["REQUESTED", "TRIAGED", "OFFERED"].includes(status) && Date.now() - Date.parse(selectedJob.createdAt) > 2 * 60 * 60 * 1000) {
+    const status = normalizeToken(selectedJob.workflowState ?? selectedJob.status);
+    if (["REQUESTED", "DISPATCHING", "OFFERED", "OFFER_EXPIRED"].includes(status) && Date.now() - Date.parse(selectedJob.createdAt) > 2 * 60 * 60 * 1000) {
       signals.push({
         id: "stale-unassigned",
         level: "WARNING",
@@ -929,21 +1092,16 @@ function App() {
       const queue = await getQueue(session.accessToken);
       setJobs((previous) => {
         const previousById = new Map(previous.map((job) => [job.id, job]));
-        const preserveJobId = selectedJobIdRef.current;
         return (queue.items ?? []).map((job) => {
-          if (!preserveJobId || job.id !== preserveJobId) {
-            return job;
-          }
           const existing = previousById.get(job.id);
           if (!existing) {
             return job;
           }
           return {
+            ...existing,
             ...job,
-            workflowState: existing.workflowState ?? job.workflowState,
-            publicStatus: existing.publicStatus ?? job.publicStatus,
-            availableWorkflowActions: existing.availableWorkflowActions ?? job.availableWorkflowActions,
-            readReceiptsSummary: existing.readReceiptsSummary ?? job.readReceiptsSummary
+            availableWorkflowActions:
+              existing.availableWorkflowActions ?? job.availableWorkflowActions
           };
         });
       });
@@ -976,24 +1134,22 @@ function App() {
     }
   }, [mapScope, session]);
 
-  useEffect(() => {
-    selectedJobIdRef.current = selectedJobId;
-  }, [selectedJobId]);
-
   const loadJobPanels = useCallback(
     async (jobId: string | null = selectedJobId) => {
       if (!session || !jobId) {
         setCandidates([]);
         setSelectedWorkerId(null);
         setTimeline([]);
+        setReadReceipts([]);
         setMessages([]);
         return;
       }
       try {
-        const [jobDetail, candidatePayload, timelinePayload, messagePayload] = await Promise.all([
+        const [jobDetail, candidatePayload, timelinePayload, readReceiptsPayload, messagePayload] = await Promise.all([
           getJobDetail(session.accessToken, jobId),
           getCandidates(session.accessToken, jobId),
           getTimeline(session.accessToken, jobId),
+          getReadReceipts(session.accessToken, jobId),
           getMessages(session.accessToken, jobId)
         ]);
         setJobs((previous) => previous.map((job) => (job.id === jobId ? { ...job, ...jobDetail } : job)));
@@ -1011,6 +1167,11 @@ function App() {
           (timelinePayload.items ?? [])
             .slice()
             .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+        );
+        setReadReceipts(
+          (readReceiptsPayload.items ?? [])
+            .slice()
+            .sort((left, right) => Date.parse(right.readAt) - Date.parse(left.readAt))
         );
         setMessages(
           (messagePayload.items ?? [])
@@ -1056,6 +1217,17 @@ function App() {
       )
     );
   }, [selectedJob?.id]);
+
+  useEffect(() => {
+    const paymentProof = latestPaymentProofAction?.actionPayload.paymentProof;
+    if (!isRecord(paymentProof)) {
+      return;
+    }
+    const paidAmount = paymentProof.paidAmount;
+    if (typeof paidAmount === "number" && Number.isFinite(paidAmount) && paidAmount >= 0) {
+      setPaymentConfirmAmount(String(Math.round(paidAmount)));
+    }
+  }, [latestPaymentProofAction]);
 
   useEffect(() => {
     if (!filteredJobs.length) {
@@ -1221,6 +1393,80 @@ function App() {
       audit: { reasonCode: "dispatcher_override" }
     });
   }, [onRunJobAction, rescheduleEndLocal, rescheduleStartLocal, selectedJobActionSet]);
+
+  const onConfirmPayment = useCallback(async () => {
+    if (!selectedJobActionSet.has("CONFIRM_PAYMENT")) {
+      return;
+    }
+    const confirmedAmount = Number(paymentConfirmAmount);
+    if (!Number.isFinite(confirmedAmount) || confirmedAmount < 0) {
+      setError("Enter a valid confirmed payment amount.");
+      return;
+    }
+    await onRunJobAction("CONFIRM_PAYMENT", {
+      paymentConfirmation: {
+        confirmedAmount: Math.round(confirmedAmount),
+        confirmedAt: new Date().toISOString()
+      }
+    });
+  }, [onRunJobAction, paymentConfirmAmount, selectedJobActionSet]);
+
+  const onRejectPaymentProof = useCallback(async () => {
+    if (!selectedJobActionSet.has("REJECT_PAYMENT_PROOF")) {
+      return;
+    }
+    await onRunJobAction("REJECT_PAYMENT_PROOF", {
+      paymentReject: {
+        reasonCode: paymentRejectReasonCode
+      }
+    });
+  }, [onRunJobAction, paymentRejectReasonCode, selectedJobActionSet]);
+
+  const onBeginDisputeReview = useCallback(async () => {
+    if (!selectedJobActionSet.has("BEGIN_DISPUTE_REVIEW")) {
+      return;
+    }
+    await onRunJobAction("BEGIN_DISPUTE_REVIEW", {});
+  }, [onRunJobAction, selectedJobActionSet]);
+
+  const onApproveDispute = useCallback(async () => {
+    if (!selectedJobActionSet.has("APPROVE_DISPUTE")) {
+      return;
+    }
+    await onRunJobAction("APPROVE_DISPUTE", {
+      dispute: {
+        decisionReason: disputeDecisionReason.trim() || "Approved after dispatch review"
+      }
+    });
+  }, [disputeDecisionReason, onRunJobAction, selectedJobActionSet]);
+
+  const onRejectDispute = useCallback(async () => {
+    if (!selectedJobActionSet.has("REJECT_DISPUTE")) {
+      return;
+    }
+    await onRunJobAction("REJECT_DISPUTE", {
+      dispute: {
+        decisionReason: disputeDecisionReason.trim() || "Rejected after dispatch review"
+      }
+    });
+  }, [disputeDecisionReason, onRunJobAction, selectedJobActionSet]);
+
+  const onRequestMoreInfo = useCallback(async () => {
+    if (!selectedJobActionSet.has("REQUEST_MORE_INFO")) {
+      return;
+    }
+    const message = requestMoreInfoMessage.trim();
+    if (!message) {
+      setError("Request-more-info message cannot be empty.");
+      return;
+    }
+    await onRunJobAction("REQUEST_MORE_INFO", {
+      request: {
+        targetRole: requestMoreInfoTargetRole,
+        message
+      }
+    });
+  }, [onRunJobAction, requestMoreInfoMessage, requestMoreInfoTargetRole, selectedJobActionSet]);
 
   const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
@@ -1436,7 +1682,7 @@ function App() {
             Status
             <select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
               <option value="ALL">All</option>
-              {JOB_STATUSES.map((status) => (
+              {WORKFLOW_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {formatToken(status)}
                 </option>
@@ -1518,7 +1764,7 @@ function App() {
               <div className="job-summary compact">
                 <p><strong>Job:</strong> {formatJobHeadline(selectedJob)}</p>
                 <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
-                <p data-testid="selected-job-id"><strong>Record ID:</strong> {selectedJob.id}</p>
+                <p data-testid="selected-job-id"><strong>Internal Ref:</strong> {selectedJob.id}</p>
                 <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
                 <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
                 <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
@@ -1648,7 +1894,7 @@ function App() {
                       <td>{candidate.rank}</td>
                       <td>
                         <div>{formatWorkerLabel(candidate)}</div>
-                        <small className="job-id">{candidate.workerId.slice(0, 8)}</small>
+                        <small>Score rank #{candidate.rank}</small>
                       </td>
                       <td>{candidate.score.toFixed(2)}</td>
                       <td>
@@ -1689,6 +1935,7 @@ function App() {
           <div className="context-nav" role="tablist" aria-label="Job context tabs">
             <button className={focusPanel === "SIGNALS" ? "chip active" : "chip"} onClick={() => setFocusPanel("SIGNALS")}>Signals</button>
             <button className={focusPanel === "DETAILS" ? "chip active" : "chip"} onClick={() => setFocusPanel("DETAILS")}>Details</button>
+            <button className={focusPanel === "PAYMENTS_DISPUTES" ? "chip active" : "chip"} onClick={() => setFocusPanel("PAYMENTS_DISPUTES")}>Payments & Disputes</button>
             <button className={focusPanel === "MESSAGES" ? "chip active" : "chip"} onClick={() => setFocusPanel("MESSAGES")}>Messages</button>
             <button className={focusPanel === "TIMELINE" ? "chip active" : "chip"} onClick={() => setFocusPanel("TIMELINE")}>Timeline</button>
           </div>
@@ -1716,7 +1963,7 @@ function App() {
                 <>
                   <p><strong>Headline:</strong> {formatJobHeadline(selectedJob)}</p>
                   <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
-                  <p><strong>Record ID:</strong> {selectedJob.id}</p>
+                  <p><strong>Internal Ref:</strong> {selectedJob.id.slice(0, 8)}</p>
                   <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
                   <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
                   <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
@@ -1753,6 +2000,191 @@ function App() {
                 </>
               ) : (
                 <p>Select a job to inspect details.</p>
+              )}
+            </div>
+          )}
+
+          {focusPanel === "PAYMENTS_DISPUTES" && (
+            <div className="job-summary expanded">
+              <h2>Payments & Disputes</h2>
+              {selectedJob ? (
+                <>
+                  <p><strong>Job:</strong> {formatJobHeadline(selectedJob)}</p>
+                  <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)} ({selectedJob.workflowState ?? "-"})</p>
+
+                  <h3>Latest Change Order</h3>
+                  {latestChangeOrderAction && latestChangeOrderPayload ? (
+                    <div className="payload-facts">
+                      <span className="payload-fact"><strong>Action:</strong> {formatToken(latestChangeOrderAction.action)}</span>
+                      <span className="payload-fact"><strong>At:</strong> {new Date(latestChangeOrderAction.event.createdAt).toLocaleString()}</span>
+                      {Object.entries(latestChangeOrderPayload).map(([key, value]) => (
+                        <span key={`change-order-${key}`} className="payload-fact">
+                          <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No submitted change order payload yet.</p>
+                  )}
+
+                  <h3>Latest Completion Evidence</h3>
+                  {latestWorkSubmissionAction && latestCompletionEvidence ? (
+                    <div className="payload-facts">
+                      <span className="payload-fact"><strong>Submitted:</strong> {new Date(latestWorkSubmissionAction.event.createdAt).toLocaleString()}</span>
+                      {Object.entries(latestCompletionEvidence).map(([key, value]) => (
+                        <span key={`completion-${key}`} className="payload-fact">
+                          <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No completion evidence payload yet.</p>
+                  )}
+
+                  <h3>Latest Payment Proof</h3>
+                  {latestPaymentProofAction && latestPaymentProof ? (
+                    <div className="payload-facts">
+                      <span className="payload-fact"><strong>Submitted:</strong> {new Date(latestPaymentProofAction.event.createdAt).toLocaleString()}</span>
+                      {Object.entries(latestPaymentProof).map(([key, value]) => (
+                        <span key={`payment-${key}`} className="payload-fact">
+                          <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No payment proof payload yet.</p>
+                  )}
+
+                  {(selectedJobActionSet.has("CONFIRM_PAYMENT") || selectedJobActionSet.has("REJECT_PAYMENT_PROOF")) && (
+                    <div className="workflow-action-inline">
+                      {selectedJobActionSet.has("CONFIRM_PAYMENT") && (
+                        <>
+                          <label>
+                            Confirm amount
+                            <input
+                              type="number"
+                              min={0}
+                              value={paymentConfirmAmount}
+                              onChange={(event) => setPaymentConfirmAmount(event.target.value)}
+                            />
+                          </label>
+                          <button className="secondary" onClick={() => void onConfirmPayment()}>
+                            Confirm Payment
+                          </button>
+                        </>
+                      )}
+                      {selectedJobActionSet.has("REJECT_PAYMENT_PROOF") && (
+                        <>
+                          <label>
+                            Reject reason
+                            <select value={paymentRejectReasonCode} onChange={(event) => setPaymentRejectReasonCode(event.target.value)}>
+                              <option value="amount_mismatch">Amount mismatch</option>
+                              <option value="unreadable">Unreadable proof</option>
+                              <option value="wrong_recipient">Wrong recipient</option>
+                              <option value="duplicate">Duplicate proof</option>
+                              <option value="suspected_fraud">Suspected fraud</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </label>
+                          <button className="secondary" onClick={() => void onRejectPaymentProof()}>
+                            Reject Payment Proof
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  <h3>Latest Dispute</h3>
+                  {latestDisputeAction && latestDisputePayload ? (
+                    <div className="payload-facts">
+                      <span className="payload-fact"><strong>Action:</strong> {formatToken(latestDisputeAction.action)}</span>
+                      <span className="payload-fact"><strong>At:</strong> {new Date(latestDisputeAction.event.createdAt).toLocaleString()}</span>
+                      {Object.entries(latestDisputePayload).map(([key, value]) => (
+                        <span key={`dispute-${key}`} className="payload-fact">
+                          <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No dispute payload yet.</p>
+                  )}
+
+                  {(selectedJobActionSet.has("BEGIN_DISPUTE_REVIEW") ||
+                    selectedJobActionSet.has("REQUEST_MORE_INFO") ||
+                    selectedJobActionSet.has("APPROVE_DISPUTE") ||
+                    selectedJobActionSet.has("REJECT_DISPUTE")) && (
+                    <div className="workflow-action-stack">
+                      <small>Dispute actions</small>
+                      {selectedJobActionSet.has("BEGIN_DISPUTE_REVIEW") && (
+                        <button className="secondary" onClick={() => void onBeginDisputeReview()}>
+                          Begin Dispute Review
+                        </button>
+                      )}
+                      {selectedJobActionSet.has("REQUEST_MORE_INFO") && (
+                        <div className="workflow-action-inline">
+                          <label>
+                            Target
+                            <select value={requestMoreInfoTargetRole} onChange={(event) => setRequestMoreInfoTargetRole(event.target.value)}>
+                              <option value="client">Client</option>
+                              <option value="worker">Worker</option>
+                            </select>
+                          </label>
+                          <label>
+                            Message
+                            <input
+                              value={requestMoreInfoMessage}
+                              onChange={(event) => setRequestMoreInfoMessage(event.target.value)}
+                            />
+                          </label>
+                          <button className="secondary" onClick={() => void onRequestMoreInfo()}>
+                            Request More Info
+                          </button>
+                        </div>
+                      )}
+                      {(selectedJobActionSet.has("APPROVE_DISPUTE") || selectedJobActionSet.has("REJECT_DISPUTE")) && (
+                        <div className="workflow-action-inline">
+                          <label>
+                            Decision reason
+                            <input value={disputeDecisionReason} onChange={(event) => setDisputeDecisionReason(event.target.value)} />
+                          </label>
+                          {selectedJobActionSet.has("APPROVE_DISPUTE") && (
+                            <button className="secondary" onClick={() => void onApproveDispute()}>
+                              Approve Dispute
+                            </button>
+                          )}
+                          {selectedJobActionSet.has("REJECT_DISPUTE") && (
+                            <button className="secondary" onClick={() => void onRejectDispute()}>
+                              Reject Dispute
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <h3>Read Receipt Stream</h3>
+                  {readReceipts.length > 0 ? (
+                    <ul className="route-list">
+                      {readReceipts.slice(0, 25).map((item) => (
+                        <li key={item.id}>
+                          <strong>{formatToken(item.subjectType)}</strong> · {item.subjectId.slice(0, 8)} ·{" "}
+                          {item.readerRole} · {new Date(item.readAt).toLocaleString()}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No read receipts recorded yet.</p>
+                  )}
+
+                  {latestRequestInfoPayload && (
+                    <p>
+                      <strong>Latest Info Request:</strong> {formatScalar(latestRequestInfoPayload.message)} (
+                      {formatScalar(latestRequestInfoPayload.targetRole)})
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p>Select a job to inspect payment and dispute workflow.</p>
               )}
             </div>
           )}

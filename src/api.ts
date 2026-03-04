@@ -4,6 +4,7 @@ import {
   DispatchCalendar,
   DispatchMapOverview,
   Job,
+  JobReadReceipt,
   MapScope,
   Message,
   TimelineEvent
@@ -144,6 +145,19 @@ export const runJobAction = (
 
 export const getTimeline = (accessToken: string, jobId: string): Promise<{ items: TimelineEvent[] }> =>
   apiRequest<{ items: TimelineEvent[] }>(`/jobs/${jobId}/timeline`, { method: "GET" }, accessToken);
+
+export const getReadReceipts = (
+  accessToken: string,
+  jobId: string,
+  subjectType?: JobReadReceipt["subjectType"]
+): Promise<{ items: JobReadReceipt[] }> => {
+  const params = new URLSearchParams();
+  if (subjectType) {
+    params.set("subjectType", subjectType);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiRequest<{ items: JobReadReceipt[] }>(`/jobs/${jobId}/read-receipts${suffix}`, { method: "GET" }, accessToken);
+};
 
 export const getMessages = (accessToken: string, jobId: string): Promise<{ items: Message[] }> =>
   apiRequest<{ items: Message[] }>(`/jobs/${jobId}/messages`, { method: "GET" }, accessToken);

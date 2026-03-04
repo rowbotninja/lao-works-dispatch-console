@@ -26,6 +26,7 @@ vi.mock("./api", () => ({
   getDispatchCalendar: vi.fn(),
   getCandidates: vi.fn(),
   getTimeline: vi.fn(),
+  getReadReceipts: vi.fn(),
   getMessages: vi.fn(),
   recomputeCandidates: vi.fn(),
   assignWorker: vi.fn(),
@@ -215,6 +216,7 @@ describe("Dispatch Console", () => {
       candidates: candidatesByJobId[jobId] ?? []
     }));
     mockedApi.getTimeline.mockResolvedValue({ items: timelineFixture });
+    mockedApi.getReadReceipts.mockResolvedValue({ items: [] });
     mockedApi.getMessages.mockResolvedValue({ items: baseMessagesFixture });
     mockedApi.recomputeCandidates.mockImplementation(async (_token, jobId) => ({
       candidates: candidatesByJobId[jobId] ?? []
@@ -294,7 +296,7 @@ describe("Dispatch Console", () => {
       expect(screen.getAllByText("Riverside Hotel - Repair backup generator unit").length).toBeGreaterThan(0)
     );
 
-    await user.selectOptions(screen.getByLabelText("Status filter"), "ASSIGNED");
+    await user.selectOptions(screen.getByLabelText("Status filter"), "SCHEDULED");
     await waitFor(() =>
       expect(screen.queryByText("Riverside Hotel - Repair backup generator unit")).not.toBeInTheDocument()
     );
