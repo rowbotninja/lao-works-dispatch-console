@@ -3,15 +3,18 @@
 Dispatcher React + TypeScript app (Vite) implementing MVP flows:
 - Login
 - Dispatch queue
+- Queue filters + sorting
 - Job detail
 - Candidate score breakdown
-- Assign/override
+- Candidate-driven assign/override
 - Timeline
-- Messaging panel
+- Messaging panel bound to selected job
+- Auto-refresh polling
 
 ## Run
 1. `npm i` (or `pnpm i`)
 2. `npm run dev`
+3. `npm test`
 
 Set `VITE_API_BASE_URL` if gateway is not `http://localhost:4000/v1`.
 
