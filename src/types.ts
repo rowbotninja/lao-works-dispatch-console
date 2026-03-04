@@ -7,6 +7,10 @@ export type AuthTokens = {
 export type Job = {
   id: string;
   clientId: string;
+  clientName?: string | null;
+  clientEmail?: string | null;
+  clientOrganizationName?: string | null;
+  clientDisplayName?: string;
   status: string;
   jobType: string;
   description: string;
@@ -15,11 +19,18 @@ export type Job = {
   personalityPreferences: string[];
   scheduleWindowStart: string | null;
   scheduleWindowEnd: string | null;
+  assignedWorkerId?: string | null;
+  assignedWorkerName?: string | null;
+  assignedWorkerEmail?: string | null;
+  assignedWorkerDisplayName?: string | null;
   createdAt: string;
 };
 
 export type Candidate = {
   workerId: string;
+  workerName?: string | null;
+  workerEmail?: string | null;
+  workerDisplayName?: string;
   score: number;
   rank: number;
   scoreBreakdown: Record<string, unknown>;

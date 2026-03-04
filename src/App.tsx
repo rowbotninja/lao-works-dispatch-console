@@ -43,7 +43,7 @@ type PayloadFact = {
   value: string;
 };
 
-const JOB_STATUSES = ["REQUESTED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
+const JOB_STATUSES = ["REQUESTED", "TRIAGED", "OFFERED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 type StatusFilter = "ALL" | (typeof JOB_STATUSES)[number];
 
 const URGENCY_LEVELS = ["LOW", "NORMAL", "HIGH", "CRITICAL"] as const;
@@ -71,10 +71,12 @@ type TimelineFilter = "ALL" | "ASSIGNMENT" | "LIFECYCLE" | "MESSAGING" | "SYSTEM
 
 const STATUS_SORT_PRIORITY: Record<string, number> = {
   REQUESTED: 0,
-  ASSIGNED: 1,
-  IN_PROGRESS: 2,
-  COMPLETED: 3,
-  CANCELLED: 4
+  TRIAGED: 1,
+  OFFERED: 2,
+  ASSIGNED: 3,
+  IN_PROGRESS: 4,
+  COMPLETED: 5,
+  CANCELLED: 6
 };
 
 const URGENCY_SORT_PRIORITY: Record<string, number> = {
@@ -107,6 +109,27 @@ const formatToken = (value: string): string =>
     .split("_")
     .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1).toLowerCase())
     .join(" ");
+
+const formatJobHeadline = (job: Job): string => {
+  const description = job.description?.trim() || formatToken(job.jobType);
+  const business = job.clientOrganizationName?.trim();
+  if (business) {
+    return `${business} - ${description}`;
+  }
+  return description;
+};
+
+const formatCustomerLabel = (job: Job): string =>
+  job.clientOrganizationName?.trim() ||
+  job.clientName?.trim() ||
+  job.clientEmail?.trim() ||
+  job.clientId;
+
+const formatWorkerLabel = (candidate: Candidate): string =>
+  candidate.workerDisplayName?.trim() ||
+  candidate.workerName?.trim() ||
+  candidate.workerEmail?.trim() ||
+  candidate.workerId;
 
 const getTimelineCategory = (eventType: string): Exclude<TimelineFilter, "ALL"> => {
   const normalized = normalizeToken(eventType);
@@ -299,6 +322,28 @@ function App() {
     () => jobs.find((job) => job.id === selectedJobId) ?? null,
     [jobs, selectedJobId]
   );
+  const workerLabelById = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const candidate of candidates) {
+      labels.set(candidate.workerId, formatWorkerLabel(candidate));
+    }
+    if (selectedJob?.assignedWorkerId) {
+      labels.set(
+        selectedJob.assignedWorkerId,
+        selectedJob.assignedWorkerDisplayName?.trim() ||
+          selectedJob.assignedWorkerName?.trim() ||
+          selectedJob.assignedWorkerEmail?.trim() ||
+          selectedJob.assignedWorkerId
+      );
+    }
+    return labels;
+  }, [candidates, selectedJob]);
+  const selectedWorkerLabel = useMemo(() => {
+    if (!selectedWorkerId) {
+      return "Select from candidates";
+    }
+    return workerLabelById.get(selectedWorkerId) ?? selectedWorkerId;
+  }, [selectedWorkerId, workerLabelById]);
 
   const timelineCounts = useMemo(() => {
     const counts: Record<TimelineFilter, number> = {
@@ -833,15 +878,15 @@ function App() {
                   onClick={() => setSelectedJobId(job.id)}
                 >
                   <div className="job-head">
-                    <strong>{job.jobType}</strong>
-                    <span className="job-id">{job.id}</span>
+                    <strong>{formatJobHeadline(job)}</strong>
+                    <span className="job-id">{job.id.slice(0, 8)}</span>
                   </div>
                   <div className="job-meta">
                     <span className="badge">{job.status}</span>
                     <span className="badge">{job.urgency}</span>
                     <span className="badge">{job.requiredSkills.length} skills</span>
                   </div>
-                  <small>{job.description}</small>
+                  <small>{formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}</small>
                 </button>
               </li>
             ))}
@@ -853,7 +898,9 @@ function App() {
           {selectedJob ? (
             <>
               <div className="job-summary">
-                <p data-testid="selected-job-id"><strong>ID:</strong> {selectedJob.id}</p>
+                <p><strong>Job:</strong> {formatJobHeadline(selectedJob)}</p>
+                <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
+                <p data-testid="selected-job-id"><strong>Record ID:</strong> {selectedJob.id}</p>
                 <p><strong>Status:</strong> {selectedJob.status}</p>
                 <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
                 <p>
@@ -862,11 +909,14 @@ function App() {
                     ? `${new Date(selectedJob.scheduleWindowStart).toLocaleString()} - ${new Date(selectedJob.scheduleWindowEnd).toLocaleString()}`
                     : "Not scheduled"}
                 </p>
-                <p><strong>Description:</strong> {selectedJob.description}</p>
                 <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
                 <p><strong>Personality:</strong> {selectedJob.personalityPreferences.join(", ") || "None"}</p>
+                <p>
+                  <strong>Assigned Worker:</strong>{" "}
+                  {selectedJob.assignedWorkerDisplayName ?? selectedJob.assignedWorkerId ?? "Not assigned"}
+                </p>
                 <p data-testid="selected-worker-id">
-                  <strong>Selected Worker:</strong> {selectedWorkerId ?? "Select from candidates"}
+                  <strong>Selected Worker:</strong> {selectedWorkerLabel}
                 </p>
               </div>
 
@@ -904,7 +954,10 @@ function App() {
                       className={selectedWorkerId === candidate.workerId ? "candidate-selected" : ""}
                     >
                       <td>{candidate.rank}</td>
-                      <td>{candidate.workerId}</td>
+                      <td>
+                        <div>{formatWorkerLabel(candidate)}</div>
+                        <small className="job-id">{candidate.workerId.slice(0, 8)}</small>
+                      </td>
                       <td>{candidate.score.toFixed(2)}</td>
                       <td>
                         <button
@@ -962,6 +1015,7 @@ function App() {
               const eventCategory = getTimelineCategory(event.eventType);
               const workerId = getEventWorkerId(event);
               const reason = getEventReason(event);
+              const workerLabel = workerId ? workerLabelById.get(workerId) ?? workerId : null;
               return (
                 <li key={event.id} className="timeline-item">
                   <div className="timeline-item-head">
@@ -977,9 +1031,9 @@ function App() {
                     ))}
                   </div>
                   <div className="timeline-inline-actions">
-                    {workerId && (
+                    {workerId && workerLabel && (
                       <button className="chip secondary" onClick={() => setSelectedWorkerId(workerId)}>
-                        Select {workerId}
+                        Select {workerLabel}
                       </button>
                     )}
                     {reason && (
@@ -1000,7 +1054,7 @@ function App() {
             })}
           </ul>
 
-          <h2>Messaging {selectedJobId ? `· ${selectedJobId}` : ""}</h2>
+          <h2>Messaging {selectedJob ? `· ${formatJobHeadline(selectedJob)}` : ""}</h2>
           <div className="messages grouped">
             {groupedMessages.map((dayGroup) => (
               <section key={dayGroup.dayKey} className="message-day-group">

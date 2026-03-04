@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -23,6 +23,7 @@ const jobsFixture: Job[] = [
   {
     id: "job-1",
     clientId: "client-1",
+    clientOrganizationName: "Riverside Hotel",
     status: "REQUESTED",
     jobType: "Generator Repair",
     description: "Repair backup generator unit",
@@ -36,6 +37,7 @@ const jobsFixture: Job[] = [
   {
     id: "job-2",
     clientId: "client-2",
+    clientName: "Mina Phommathat",
     status: "ASSIGNED",
     jobType: "HVAC Inspection",
     description: "Inspect AC airflow and controls",
@@ -167,20 +169,17 @@ describe("Dispatch Console", () => {
     await waitFor(() => expect(mockedApi.getQueue).toHaveBeenCalledTimes(1));
 
     await waitFor(() =>
-      expect(screen.getByText("Generator Repair")).toBeInTheDocument()
+      expect(screen.getAllByText("Riverside Hotel - Repair backup generator unit").length).toBeGreaterThan(0)
     );
 
-    await user.click(screen.getByRole("button", { name: /HVAC Inspection/i }));
+    await user.click(screen.getByRole("button", { name: /Inspect AC airflow and controls/i }));
     await waitFor(() =>
       expect(mockedApi.getCandidates).toHaveBeenLastCalledWith("access-token", "job-2")
     );
 
-    const workerCell = screen
-      .getAllByText("worker-2")
-      .find((element) => element.tagName.toLowerCase() === "td");
-    const candidateRow = workerCell?.closest("tr");
-    expect(candidateRow).not.toBeNull();
-    await user.click(within(candidateRow!).getByRole("button", { name: /Select|Selected/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-worker-id")).toHaveTextContent("worker-2")
+    );
     await user.click(screen.getByRole("button", { name: "Assign Selected Candidate" }));
 
     await waitFor(() =>
@@ -215,17 +214,21 @@ describe("Dispatch Console", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign In" }));
     await waitFor(() => expect(mockedApi.getQueue).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByText("Generator Repair")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getAllByText("Riverside Hotel - Repair backup generator unit").length).toBeGreaterThan(0)
+    );
 
     await user.selectOptions(screen.getByLabelText("Status filter"), "ASSIGNED");
-    await waitFor(() => expect(screen.queryByText("Generator Repair")).not.toBeInTheDocument());
-    const jobCard = screen.getByRole("button", { name: /HVAC Inspection/i });
+    await waitFor(() =>
+      expect(screen.queryByText("Riverside Hotel - Repair backup generator unit")).not.toBeInTheDocument()
+    );
+    const jobCard = screen.getByRole("button", { name: /Inspect AC airflow and controls/i });
     expect(jobCard).toBeInTheDocument();
     expect(jobCard).toHaveTextContent("job-2");
 
     await user.selectOptions(screen.getByLabelText("Skill filter"), "HVAC");
-    expect(screen.getByText("HVAC Inspection")).toBeInTheDocument();
-    expect(screen.queryByText("Generator Repair")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Inspect AC airflow and controls").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Riverside Hotel - Repair backup generator unit")).not.toBeInTheDocument();
   });
 
   it("supports timeline action chips, message grouping, and keyboard shortcuts", async () => {
