@@ -14,3 +14,7 @@ Dispatcher React + TypeScript app (Vite) implementing MVP flows:
 2. `npm run dev`
 
 Set `VITE_API_BASE_URL` if gateway is not `http://localhost:4000/v1`.
+
+## Deployed Dev URL
+- UI: `http://dev-dispatch.lao-works.rowbot.lan`
+- API: `http://dev-api.lao-works.rowbot.lan/v1`
