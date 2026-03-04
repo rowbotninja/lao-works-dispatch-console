@@ -1,4 +1,5 @@
 import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import {
   assignWorker,
   getCandidates,
@@ -12,15 +13,28 @@ import {
   sendMessage,
   overrideWorker
 } from "./api";
-import { Candidate, DispatchCalendar, DispatchMapOverview, Job, Message, TimelineEvent } from "./types";
+import { Candidate, DispatchCalendar, DispatchMapOverview, Job, MapScope, Message, TimelineEvent } from "./types";
+
+const LeafletMapContainer = MapContainer as unknown as (props: any) => JSX.Element;
+const LeafletTileLayer = TileLayer as unknown as (props: any) => JSX.Element;
+const LeafletCircleMarker = CircleMarker as unknown as (props: any) => JSX.Element;
+const LeafletPolyline = Polyline as unknown as (props: any) => JSX.Element;
+const LeafletPopup = Popup as unknown as (props: any) => JSX.Element;
 
 type Session = {
   accessToken: string;
   refreshToken: string;
 };
 
+type MessageAudience = "CLIENT" | "WORKER" | "BOTH";
+type FocusPanel = "SIGNALS" | "DETAILS" | "MESSAGES" | "TIMELINE";
+type OpsTab = "ROUTING" | "SCHEDULING";
+
 type MessageThreadGroup = {
   senderUserId: string;
+  senderName: string | null;
+  senderRole: string | null;
+  audience: MessageAudience;
   startedAt: string;
   endedAt: string;
   items: Message[];
@@ -45,11 +59,37 @@ type PayloadFact = {
   value: string;
 };
 
+type SignalLevel = "CRITICAL" | "WARNING" | "INFO";
+
+type DispatchSignal = {
+  id: string;
+  level: SignalLevel;
+  label: string;
+  detail: string;
+  actionHint?: string;
+};
+
+type MapPoint = {
+  id: string;
+  kind: "JOB" | "WORKER";
+  lat: number;
+  lon: number;
+  label: string;
+  status: string;
+};
+
 const JOB_STATUSES = ["REQUESTED", "TRIAGED", "OFFERED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 type StatusFilter = "ALL" | (typeof JOB_STATUSES)[number];
 
 const URGENCY_LEVELS = ["LOW", "NORMAL", "HIGH", "CRITICAL"] as const;
 type UrgencyFilter = "ALL" | (typeof URGENCY_LEVELS)[number];
+
+const MAP_SCOPES: Array<{ scope: MapScope; label: string; hint: string }> = [
+  { scope: "TODAY", label: "Today", hint: "Active and unscheduled jobs for today" },
+  { scope: "FUTURE", label: "Future", hint: "Upcoming scheduled jobs" },
+  { scope: "PAST", label: "Past", hint: "Missed and historical scheduled jobs" },
+  { scope: "ALL", label: "All", hint: "All active jobs regardless of date" }
+];
 
 const DEFAULT_SKILLS = [
   "ELECTRICAL",
@@ -88,13 +128,7 @@ const URGENCY_SORT_PRIORITY: Record<string, number> = {
   LOW: 3
 };
 
-const TIMELINE_FILTERS: TimelineFilter[] = [
-  "ALL",
-  "ASSIGNMENT",
-  "LIFECYCLE",
-  "MESSAGING",
-  "SYSTEM"
-];
+const TIMELINE_FILTERS: TimelineFilter[] = ["ALL", "ASSIGNMENT", "LIFECYCLE", "MESSAGING", "SYSTEM"];
 
 const TIMELINE_FILTER_LABELS: Record<TimelineFilter, string> = {
   ALL: "All",
@@ -103,6 +137,12 @@ const TIMELINE_FILTER_LABELS: Record<TimelineFilter, string> = {
   MESSAGING: "Messaging",
   SYSTEM: "System"
 };
+
+const MESSAGE_AUDIENCE_OPTIONS: Array<{ value: MessageAudience; label: string }> = [
+  { value: "BOTH", label: "Customer + Tech" },
+  { value: "WORKER", label: "Tech Only" },
+  { value: "CLIENT", label: "Customer Only" }
+];
 
 const normalizeToken = (value: string): string => value.trim().toUpperCase().replace(/\s+/g, "_");
 
@@ -133,11 +173,9 @@ const formatWorkerLabel = (candidate: Candidate): string =>
   candidate.workerEmail?.trim() ||
   candidate.workerId;
 
-const formatLatLon = (lat: number, lon: number): string =>
-  `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+const formatLatLon = (lat: number, lon: number): string => `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
 
-const weekdayLabel = (dayOfWeek: number): string =>
-  ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayOfWeek] ?? `Day ${dayOfWeek}`;
+const weekdayLabel = (dayOfWeek: number): string => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayOfWeek] ?? `Day ${dayOfWeek}`;
 
 const getTimelineCategory = (eventType: string): Exclude<TimelineFilter, "ALL"> => {
   const normalized = normalizeToken(eventType);
@@ -253,10 +291,7 @@ const getCandidateFactors = (scoreBreakdown: Record<string, unknown>): Candidate
     });
 };
 
-const getCandidateFinalScore = (
-  scoreBreakdown: Record<string, unknown>,
-  fallback: number
-): number => {
+const getCandidateFinalScore = (scoreBreakdown: Record<string, unknown>, fallback: number): number => {
   const breakdownFinal = toNumberOrNull(scoreBreakdown.finalScore);
   if (breakdownFinal !== null) {
     return breakdownFinal;
@@ -301,6 +336,87 @@ const getPayloadFacts = (payload: Record<string, unknown>): PayloadFact[] => {
     .map(([key, value]) => ({ label: toFactLabel(key), value: formatScalar(value) }));
 };
 
+const isPastDue = (job: Job): boolean => {
+  if (!job.scheduleWindowEnd) {
+    return false;
+  }
+  const windowEnd = Date.parse(job.scheduleWindowEnd);
+  if (Number.isNaN(windowEnd)) {
+    return false;
+  }
+  return windowEnd < Date.now() && !["COMPLETED", "CANCELLED"].includes(normalizeToken(job.status));
+};
+
+const getAudienceLabel = (audience: MessageAudience): string => {
+  if (audience === "WORKER") {
+    return "Tech";
+  }
+  if (audience === "CLIENT") {
+    return "Customer";
+  }
+  return "Both";
+};
+
+const formatSenderRole = (role: string | null | undefined): string => {
+  const normalized = normalizeToken(role ?? "");
+  if (normalized === "CLIENT") {
+    return "Customer";
+  }
+  if (normalized === "WORKER") {
+    return "Tech";
+  }
+  if (normalized === "DISPATCH" || normalized === "ADMIN") {
+    return "Dispatch";
+  }
+  return "Participant";
+};
+
+const formatMessageSender = (message: Message): string => {
+  const roleLabel = formatSenderRole(message.senderRole);
+  const name = message.senderName?.trim();
+  if (name) {
+    return `${name} (${roleLabel})`;
+  }
+  return roleLabel;
+};
+
+const getMapPointColor = (point: MapPoint): string => {
+  if (point.kind === "WORKER") {
+    return "#57cbff";
+  }
+  const status = normalizeToken(point.status);
+  if (status === "IN_PROGRESS") {
+    return "#49dd87";
+  }
+  if (status === "ASSIGNED") {
+    return "#f0c45f";
+  }
+  if (status === "REQUESTED" || status === "TRIAGED" || status === "OFFERED") {
+    return "#ff9d73";
+  }
+  return "#c7d8e7";
+};
+
+const FitMapBounds = ({ points }: { points: MapPoint[] }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!points.length) {
+      return;
+    }
+
+    if (points.length === 1) {
+      map.setView([points[0].lat, points[0].lon], 12);
+      return;
+    }
+
+    const bounds = points.map((point) => [point.lat, point.lon] as [number, number]);
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
+  }, [map, points]);
+
+  return null;
+};
+
 function App() {
   const [identifier, setIdentifier] = useState("dispatch@laoworks.local");
   const [password, setPassword] = useState("password123");
@@ -314,12 +430,16 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [overrideReason, setOverrideReason] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
+  const [messageAudience, setMessageAudience] = useState<MessageAudience>("BOTH");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("ALL");
   const [skillFilter, setSkillFilter] = useState("ALL");
   const [personalityFilter, setPersonalityFilter] = useState("ALL");
   const [queueSort, setQueueSort] = useState<QueueSort>("NEWEST");
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>("ALL");
+  const [focusPanel, setFocusPanel] = useState<FocusPanel>("SIGNALS");
+  const [opsTab, setOpsTab] = useState<OpsTab>("ROUTING");
+  const [mapScope, setMapScope] = useState<MapScope>("TODAY");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
@@ -328,10 +448,8 @@ function App() {
   const overrideReasonInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
 
-  const selectedJob = useMemo(
-    () => jobs.find((job) => job.id === selectedJobId) ?? null,
-    [jobs, selectedJobId]
-  );
+  const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? null, [jobs, selectedJobId]);
+
   const workerLabelById = useMemo(() => {
     const labels = new Map<string, string>();
     for (const candidate of candidates) {
@@ -348,6 +466,7 @@ function App() {
     }
     return labels;
   }, [candidates, selectedJob]);
+
   const selectedWorkerLabel = useMemo(() => {
     if (!selectedWorkerId) {
       return "Select from candidates";
@@ -393,9 +512,11 @@ function App() {
       const thread = dayGroup.threads[dayGroup.threads.length - 1];
       const previousEndedAt = thread ? Date.parse(thread.endedAt) : 0;
       const currentCreatedAt = Date.parse(message.createdAt);
+      const currentAudience = message.audience ?? "BOTH";
       const shouldMerge =
         Boolean(thread) &&
         thread.senderUserId === message.senderUserId &&
+        thread.audience === currentAudience &&
         currentCreatedAt - previousEndedAt <= 5 * 60 * 1000;
 
       if (thread && shouldMerge) {
@@ -404,6 +525,9 @@ function App() {
       } else {
         dayGroup.threads.push({
           senderUserId: message.senderUserId,
+          senderName: message.senderName ?? null,
+          senderRole: message.senderRole ?? null,
+          audience: currentAudience,
           startedAt: message.createdAt,
           endedAt: message.createdAt,
           items: [message]
@@ -433,8 +557,7 @@ function App() {
       const matchesStatus = statusFilter === "ALL" || status === statusFilter;
       const matchesUrgency = urgencyFilter === "ALL" || urgency === urgencyFilter;
       const matchesSkill = skillFilter === "ALL" || skillSet.has(skillFilter);
-      const matchesPersonality =
-        personalityFilter === "ALL" || personalitySet.has(personalityFilter);
+      const matchesPersonality = personalityFilter === "ALL" || personalitySet.has(personalityFilter);
 
       return matchesStatus && matchesUrgency && matchesSkill && matchesPersonality;
     });
@@ -462,14 +585,7 @@ function App() {
 
   const mapPoints = useMemo(() => {
     if (!mapOverview) {
-      return [] as Array<{
-        id: string;
-        kind: "JOB" | "WORKER";
-        lat: number;
-        lon: number;
-        label: string;
-        status: string;
-      }>;
+      return [] as MapPoint[];
     }
 
     const jobPoints = mapOverview.jobs.map((job) => ({
@@ -493,24 +609,92 @@ function App() {
     return [...jobPoints, ...workerPoints];
   }, [mapOverview]);
 
-  const mapBounds = useMemo(() => {
-    if (!mapPoints.length) {
-      return null;
+  const queueStats = useMemo(() => {
+    const stats = {
+      requested: 0,
+      assigned: 0,
+      inProgress: 0,
+      urgent: 0
+    };
+    for (const job of filteredJobs) {
+      const status = normalizeToken(job.status);
+      const urgency = normalizeToken(job.urgency);
+      if (status === "REQUESTED" || status === "TRIAGED" || status === "OFFERED") {
+        stats.requested += 1;
+      }
+      if (status === "ASSIGNED") {
+        stats.assigned += 1;
+      }
+      if (status === "IN_PROGRESS") {
+        stats.inProgress += 1;
+      }
+      if (urgency === "CRITICAL" || urgency === "HIGH") {
+        stats.urgent += 1;
+      }
     }
-    let minLat = Number.POSITIVE_INFINITY;
-    let maxLat = Number.NEGATIVE_INFINITY;
-    let minLon = Number.POSITIVE_INFINITY;
-    let maxLon = Number.NEGATIVE_INFINITY;
+    return stats;
+  }, [filteredJobs]);
 
-    for (const point of mapPoints) {
-      minLat = Math.min(minLat, point.lat);
-      maxLat = Math.max(maxLat, point.lat);
-      minLon = Math.min(minLon, point.lon);
-      maxLon = Math.max(maxLon, point.lon);
+  const dispatchSignals = useMemo(() => {
+    if (!selectedJob) {
+      return [] as DispatchSignal[];
     }
 
-    return { minLat, maxLat, minLon, maxLon };
-  }, [mapPoints]);
+    const signals: DispatchSignal[] = [];
+    if (isPastDue(selectedJob)) {
+      signals.push({
+        id: "overdue",
+        level: "CRITICAL",
+        label: "Overdue schedule window",
+        detail: `Job should have completed by ${new Date(selectedJob.scheduleWindowEnd!).toLocaleString()}`,
+        actionHint: "Review worker status and re-route immediately"
+      });
+    }
+
+    const status = normalizeToken(selectedJob.status);
+    if (["REQUESTED", "TRIAGED", "OFFERED"].includes(status) && Date.now() - Date.parse(selectedJob.createdAt) > 2 * 60 * 60 * 1000) {
+      signals.push({
+        id: "stale-unassigned",
+        level: "WARNING",
+        label: "Unassigned for over 2 hours",
+        detail: "This request has been waiting in queue",
+        actionHint: "Recompute and assign best nearby skilled worker"
+      });
+    }
+
+    if (!selectedJob.assignedWorkerId && candidates.length === 0) {
+      signals.push({
+        id: "no-candidates",
+        level: "WARNING",
+        label: "No candidates scored yet",
+        detail: "Candidate table is empty for this job",
+        actionHint: "Run Recompute Candidates"
+      });
+    }
+
+    const latestMessage = messages[messages.length - 1];
+    if (latestMessage && normalizeToken(latestMessage.senderRole ?? "") === "CLIENT") {
+      signals.push({
+        id: "customer-message",
+        level: "INFO",
+        label: "Latest message from customer",
+        detail: latestMessage.body.length > 120 ? `${latestMessage.body.slice(0, 117)}...` : latestMessage.body,
+        actionHint: "Respond in Messages panel"
+      });
+    }
+
+    if (signals.length === 0) {
+      signals.push({
+        id: "healthy",
+        level: "INFO",
+        label: "No active dispatch alerts",
+        detail: "Current job state looks healthy",
+        actionHint: "Monitor timeline and scheduling"
+      });
+    }
+
+    return signals;
+  }, [candidates.length, messages, selectedJob]);
 
   const loadQueue = useCallback(async () => {
     if (!session) return;
@@ -537,7 +721,7 @@ function App() {
       const to = new Date(from);
       to.setDate(to.getDate() + 7);
       const [mapPayload, calendarPayload] = await Promise.all([
-        getMapOverview(session.accessToken),
+        getMapOverview(session.accessToken, mapScope),
         getDispatchCalendar(session.accessToken, from.toISOString(), to.toISOString())
       ]);
       setMapOverview(mapPayload);
@@ -545,7 +729,7 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operations map/calendar refresh failed");
     }
-  }, [session]);
+  }, [mapScope, session]);
 
   const loadJobPanels = useCallback(
     async (jobId: string | null = selectedJobId) => {
@@ -678,12 +862,7 @@ function App() {
   const onOverride = useCallback(async () => {
     if (!session || !selectedJobId || !selectedWorkerId || !overrideReason.trim()) return;
     try {
-      await overrideWorker(
-        session.accessToken,
-        selectedJobId,
-        selectedWorkerId,
-        overrideReason.trim()
-      );
+      await overrideWorker(session.accessToken, selectedJobId, selectedWorkerId, overrideReason.trim());
       setOverrideReason("");
       await refreshPanelsAfterMutation();
       setError(null);
@@ -695,14 +874,14 @@ function App() {
   const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
     try {
-      await sendMessage(session.accessToken, selectedJobId, messageDraft.trim());
+      await sendMessage(session.accessToken, selectedJobId, messageDraft.trim(), messageAudience);
       setMessageDraft("");
       await loadJobPanels(selectedJobId);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send message failed");
     }
-  }, [loadJobPanels, messageDraft, selectedJobId, session]);
+  }, [loadJobPanels, messageAudience, messageDraft, selectedJobId, session]);
 
   const onUseTimelineReason = useCallback((reason: string) => {
     setOverrideReason(reason);
@@ -712,6 +891,7 @@ function App() {
   const onQuoteTimelineEvent = useCallback((event: TimelineEvent) => {
     const payloadSummary = JSON.stringify(event.payload);
     const line = `[${event.eventType}] ${payloadSummary.length > 150 ? `${payloadSummary.slice(0, 147)}...` : payloadSummary}`;
+    setFocusPanel("MESSAGES");
     setMessageDraft((current) => (current ? `${current}\n${line}` : line));
     messageInputRef.current?.focus();
   }, []);
@@ -720,6 +900,7 @@ function App() {
     if (!session) {
       return;
     }
+
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
 
@@ -770,6 +951,7 @@ function App() {
       }
       if (key === "m") {
         event.preventDefault();
+        setFocusPanel("MESSAGES");
         messageInputRef.current?.focus();
         return;
       }
@@ -810,17 +992,6 @@ function App() {
     }
   };
 
-  const pointStyle = (lat: number, lon: number): { left: string; top: string } => {
-    if (!mapBounds) {
-      return { left: "50%", top: "50%" };
-    }
-    const lonSpan = Math.max(0.001, mapBounds.maxLon - mapBounds.minLon);
-    const latSpan = Math.max(0.001, mapBounds.maxLat - mapBounds.minLat);
-    const x = ((lon - mapBounds.minLon) / lonSpan) * 100;
-    const y = 100 - ((lat - mapBounds.minLat) / latSpan) * 100;
-    return { left: `${x}%`, top: `${y}%` };
-  };
-
   if (!session) {
     return (
       <main className="auth-shell">
@@ -834,11 +1005,7 @@ function App() {
             </label>
             <label>
               Password
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
             </label>
             <button type="submit">Sign In</button>
           </form>
@@ -865,7 +1032,7 @@ function App() {
             Shortcuts (?)
           </button>
           <button onClick={() => void refreshPanelsAfterMutation()} disabled={isRefreshing}>
-            {isRefreshing ? "Refreshing..." : "Refresh Queue"}
+            {isRefreshing ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </header>
@@ -875,127 +1042,128 @@ function App() {
         <section className="shortcut-panel" aria-label="Keyboard shortcuts">
           <h2>Keyboard Shortcuts</h2>
           <div className="shortcut-grid">
-            <p><kbd>j</kbd> or <kbd>↓</kbd> Next job</p>
-            <p><kbd>k</kbd> or <kbd>↑</kbd> Previous job</p>
+            <p><kbd>j</kbd>/<kbd>k</kbd> Move queue selection</p>
             <p><kbd>r</kbd> Recompute candidates</p>
             <p><kbd>a</kbd> Assign selected candidate</p>
             <p><kbd>o</kbd> Focus override reason</p>
             <p><kbd>m</kbd> Focus message draft</p>
             <p><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> Send message</p>
-            <p><kbd>1-5</kbd> Switch timeline chips</p>
+            <p><kbd>1-5</kbd> Timeline signal filters</p>
+            <p><kbd>?</kbd> Toggle this panel</p>
           </div>
         </section>
       )}
 
-      <section className="grid-layout">
-        <aside className="panel queue">
-          <h2>Job Queue</h2>
-          <div className="queue-controls">
-            <label>
-              Status
-              <select
-                aria-label="Status filter"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-              >
-                <option value="ALL">All</option>
-                {JOB_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {formatToken(status)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Urgency
-              <select
-                aria-label="Urgency filter"
-                value={urgencyFilter}
-                onChange={(event) => setUrgencyFilter(event.target.value as UrgencyFilter)}
-              >
-                <option value="ALL">All</option>
-                {URGENCY_LEVELS.map((urgency) => (
-                  <option key={urgency} value={urgency}>
-                    {formatToken(urgency)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Skill
-              <select
-                aria-label="Skill filter"
-                value={skillFilter}
-                onChange={(event) => setSkillFilter(event.target.value)}
-              >
-                <option value="ALL">All</option>
-                {skillOptions.map((skill) => (
-                  <option key={skill} value={skill}>
-                    {formatToken(skill)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Personality
-              <select
-                aria-label="Personality filter"
-                value={personalityFilter}
-                onChange={(event) => setPersonalityFilter(event.target.value)}
-              >
-                <option value="ALL">All</option>
-                {personalityTagOptions.map((tag) => (
-                  <option key={tag} value={tag}>
-                    {formatToken(tag)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Sort
-              <select
-                aria-label="Sort queue"
-                value={queueSort}
-                onChange={(event) => setQueueSort(event.target.value as QueueSort)}
-              >
-                <option value="NEWEST">Newest</option>
-                <option value="OLDEST">Oldest</option>
-                <option value="URGENCY">Urgency</option>
-                <option value="STATUS">Status</option>
-              </select>
-            </label>
+      <section className="panel queue-top">
+        <div className="queue-top-header">
+          <div>
+            <h2>Dispatch Queue</h2>
+            <p className="queue-count">Prioritize urgent and unassigned jobs first.</p>
           </div>
-          <p className="queue-count">
-            Showing {filteredJobs.length} of {jobs.length} jobs
-          </p>
-          <ul>
-            {filteredJobs.map((job) => (
-              <li key={job.id}>
-                <button
-                  className={job.id === selectedJobId ? "job active" : "job"}
-                  onClick={() => setSelectedJobId(job.id)}
-                >
-                  <div className="job-head">
-                    <strong>{formatJobHeadline(job)}</strong>
-                    <span className="job-id">{job.id.slice(0, 8)}</span>
-                  </div>
-                  <div className="job-meta">
-                    <span className="badge">{job.status}</span>
-                    <span className="badge">{job.urgency}</span>
-                    <span className="badge">{job.requiredSkills.length} skills</span>
-                  </div>
-                  <small>{formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}</small>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
+          <div className="queue-summary-metrics">
+            <article>
+              <span>Unassigned</span>
+              <strong>{queueStats.requested}</strong>
+            </article>
+            <article>
+              <span>Assigned</span>
+              <strong>{queueStats.assigned}</strong>
+            </article>
+            <article>
+              <span>In Progress</span>
+              <strong>{queueStats.inProgress}</strong>
+            </article>
+            <article>
+              <span>Urgent</span>
+              <strong>{queueStats.urgent}</strong>
+            </article>
+          </div>
+        </div>
 
-        <section className="panel detail">
-          <h2>Job Detail</h2>
+        <div className="queue-controls inline">
+          <label>
+            Status
+            <select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+              <option value="ALL">All</option>
+              {JOB_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {formatToken(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Urgency
+            <select aria-label="Urgency filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value as UrgencyFilter)}>
+              <option value="ALL">All</option>
+              {URGENCY_LEVELS.map((urgency) => (
+                <option key={urgency} value={urgency}>
+                  {formatToken(urgency)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Skill
+            <select aria-label="Skill filter" value={skillFilter} onChange={(event) => setSkillFilter(event.target.value)}>
+              <option value="ALL">All</option>
+              {skillOptions.map((skill) => (
+                <option key={skill} value={skill}>
+                  {formatToken(skill)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Personality
+            <select aria-label="Personality filter" value={personalityFilter} onChange={(event) => setPersonalityFilter(event.target.value)}>
+              <option value="ALL">All</option>
+              {personalityTagOptions.map((tag) => (
+                <option key={tag} value={tag}>
+                  {formatToken(tag)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Sort
+            <select aria-label="Sort queue" value={queueSort} onChange={(event) => setQueueSort(event.target.value as QueueSort)}>
+              <option value="NEWEST">Newest</option>
+              <option value="OLDEST">Oldest</option>
+              <option value="URGENCY">Urgency</option>
+              <option value="STATUS">Status</option>
+            </select>
+          </label>
+        </div>
+
+        <ul className="queue-grid">
+          {filteredJobs.map((job) => (
+            <li key={job.id}>
+              <button className={job.id === selectedJobId ? "job active" : "job"} onClick={() => setSelectedJobId(job.id)}>
+                <div className="job-head">
+                  <strong>{formatJobHeadline(job)}</strong>
+                  {isPastDue(job) && <span className="signal-pill critical">Overdue</span>}
+                </div>
+                <div className="job-meta">
+                  <span className="badge">{job.status}</span>
+                  <span className="badge">{job.urgency}</span>
+                  <span className="badge">{job.requiredSkills.length} skills</span>
+                </div>
+                <small>
+                  {formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}
+                </small>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="dispatch-workbench-layout">
+        <section className="panel assignment-panel">
+          <h2>Assignment Workbench</h2>
           {selectedJob ? (
             <>
-              <div className="job-summary">
+              <div className="job-summary compact">
                 <p><strong>Job:</strong> {formatJobHeadline(selectedJob)}</p>
                 <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
                 <p data-testid="selected-job-id"><strong>Record ID:</strong> {selectedJob.id}</p>
@@ -1007,22 +1175,12 @@ function App() {
                     ? `${new Date(selectedJob.scheduleWindowStart).toLocaleString()} - ${new Date(selectedJob.scheduleWindowEnd).toLocaleString()}`
                     : "Not scheduled"}
                 </p>
-                <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
-                <p><strong>Personality:</strong> {selectedJob.personalityPreferences.join(", ") || "None"}</p>
-                <p>
-                  <strong>Assigned Worker:</strong>{" "}
-                  {selectedJob.assignedWorkerDisplayName ?? selectedJob.assignedWorkerId ?? "Not assigned"}
-                </p>
-                <p data-testid="selected-worker-id">
-                  <strong>Selected Worker:</strong> {selectedWorkerLabel}
-                </p>
+                <p><strong>Selected Worker:</strong> <span data-testid="selected-worker-id">{selectedWorkerLabel}</span></p>
               </div>
 
-              <div className="actions">
+              <div className="actions stacked">
                 <button onClick={onRecompute}>Recompute Candidates</button>
-                <button onClick={onAssign} disabled={!selectedWorkerId}>
-                  Assign Selected Candidate
-                </button>
+                <button onClick={onAssign} disabled={!selectedWorkerId}>Assign Selected Candidate</button>
                 <input
                   ref={overrideReasonInputRef}
                   placeholder="Override reason"
@@ -1041,16 +1199,13 @@ function App() {
                     <th>Rank</th>
                     <th>Worker</th>
                     <th>Score</th>
-                    <th>Actions</th>
+                    <th>Action</th>
                     <th>Breakdown</th>
                   </tr>
                 </thead>
                 <tbody>
                   {candidates.map((candidate) => (
-                    <tr
-                      key={candidate.workerId}
-                      className={selectedWorkerId === candidate.workerId ? "candidate-selected" : ""}
-                    >
+                    <tr key={candidate.workerId} className={selectedWorkerId === candidate.workerId ? "candidate-selected" : ""}>
                       <td>{candidate.rank}</td>
                       <td>
                         <div>{formatWorkerLabel(candidate)}</div>
@@ -1091,220 +1246,348 @@ function App() {
           )}
         </section>
 
-        <section className="panel timeline">
-          <h2>Timeline</h2>
-          <div className="timeline-chips" role="group" aria-label="Timeline filters">
-            {TIMELINE_FILTERS.map((filter) => (
-              <button
-                key={filter}
-                className={timelineFilter === filter ? "chip active" : "chip"}
-                onClick={() => setTimelineFilter(filter)}
-              >
-                {TIMELINE_FILTER_LABELS[filter]} ({timelineCounts[filter]})
-              </button>
-            ))}
+        <section className="panel context-panel">
+          <div className="context-nav" role="tablist" aria-label="Job context tabs">
+            <button className={focusPanel === "SIGNALS" ? "chip active" : "chip"} onClick={() => setFocusPanel("SIGNALS")}>Signals</button>
+            <button className={focusPanel === "DETAILS" ? "chip active" : "chip"} onClick={() => setFocusPanel("DETAILS")}>Details</button>
+            <button className={focusPanel === "MESSAGES" ? "chip active" : "chip"} onClick={() => setFocusPanel("MESSAGES")}>Messages</button>
+            <button className={focusPanel === "TIMELINE" ? "chip active" : "chip"} onClick={() => setFocusPanel("TIMELINE")}>Timeline</button>
           </div>
-          <ul className="timeline-list">
-            {visibleTimeline.map((event) => {
-              const eventCategory = getTimelineCategory(event.eventType);
-              const workerId = getEventWorkerId(event);
-              const reason = getEventReason(event);
-              const workerLabel = workerId ? workerLabelById.get(workerId) ?? workerId : null;
-              return (
-                <li key={event.id} className="timeline-item">
-                  <div className="timeline-item-head">
-                    <strong>{event.eventType}</strong>
-                    <span className="timeline-tag">{TIMELINE_FILTER_LABELS[eventCategory]}</span>
-                    <span>{new Date(event.createdAt).toLocaleString()}</span>
-                  </div>
-                  <div className="payload-facts">
-                    {getPayloadFacts(event.payload).map((fact) => (
-                      <span key={`${event.id}-${fact.label}`} className="payload-fact">
-                        <strong>{fact.label}:</strong> {fact.value}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="timeline-inline-actions">
-                    {workerId && workerLabel && (
-                      <button className="chip secondary" onClick={() => setSelectedWorkerId(workerId)}>
-                        Select {workerLabel}
-                      </button>
-                    )}
-                    {reason && (
-                      <button className="chip secondary" onClick={() => onUseTimelineReason(reason)}>
-                        Use reason
-                      </button>
-                    )}
-                    <button className="chip secondary" onClick={() => onQuoteTimelineEvent(event)}>
-                      Quote in message
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
 
-          <h2>Messaging {selectedJob ? `· ${formatJobHeadline(selectedJob)}` : ""}</h2>
-          <div className="messages grouped">
-            {groupedMessages.map((dayGroup) => (
-              <section key={dayGroup.dayKey} className="message-day-group">
-                <h3>{dayGroup.dayLabel}</h3>
-                {dayGroup.threads.map((thread, index) => (
-                  <article
-                    key={`${dayGroup.dayKey}-${thread.senderUserId}-${thread.startedAt}-${index}`}
-                    className="message-thread"
-                  >
-                    <header>
-                      {thread.senderUserId} · {new Date(thread.startedAt).toLocaleTimeString()}
-                    </header>
-                    <div className="message-thread-lines">
-                      {thread.items.map((message) => (
-                        <p key={message.id}>{message.body}</p>
-                      ))}
-                    </div>
-                  </article>
+          {focusPanel === "SIGNALS" && (
+            <div className="signal-list">
+              <h2>Dispatch Signals</h2>
+              {dispatchSignals.map((signal) => (
+                <article key={signal.id} className={`signal-card ${signal.level.toLowerCase()}`}>
+                  <header>
+                    <span className={`signal-pill ${signal.level.toLowerCase()}`}>{signal.level}</span>
+                    <strong>{signal.label}</strong>
+                  </header>
+                  <p>{signal.detail}</p>
+                  {signal.actionHint && <small>{signal.actionHint}</small>}
+                </article>
+              ))}
+            </div>
+          )}
+
+          {focusPanel === "DETAILS" && (
+            <div className="job-summary expanded">
+              <h2>Job Detail</h2>
+              {selectedJob ? (
+                <>
+                  <p><strong>Headline:</strong> {formatJobHeadline(selectedJob)}</p>
+                  <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
+                  <p><strong>Record ID:</strong> {selectedJob.id}</p>
+                  <p><strong>Status:</strong> {selectedJob.status}</p>
+                  <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
+                  <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
+                  <p><strong>Personality:</strong> {selectedJob.personalityPreferences.join(", ") || "None"}</p>
+                  <p>
+                    <strong>Assigned Worker:</strong>{" "}
+                    {selectedJob.assignedWorkerDisplayName ?? selectedJob.assignedWorkerId ?? "Not assigned"}
+                  </p>
+                  <p>
+                    <strong>Window:</strong>{" "}
+                    {selectedJob.scheduleWindowStart && selectedJob.scheduleWindowEnd
+                      ? `${new Date(selectedJob.scheduleWindowStart).toLocaleString()} - ${new Date(selectedJob.scheduleWindowEnd).toLocaleString()}`
+                      : "Not scheduled"}
+                  </p>
+                </>
+              ) : (
+                <p>Select a job to inspect details.</p>
+              )}
+            </div>
+          )}
+
+          {focusPanel === "MESSAGES" && (
+            <div>
+              <h2>Messaging {selectedJob ? `· ${formatJobHeadline(selectedJob)}` : ""}</h2>
+              <div className="messages grouped">
+                {groupedMessages.map((dayGroup) => (
+                  <section key={dayGroup.dayKey} className="message-day-group">
+                    <h3>{dayGroup.dayLabel}</h3>
+                    {dayGroup.threads.map((thread, index) => {
+                      const senderPreview: Message = {
+                        id: `${dayGroup.dayKey}-${index}`,
+                        threadId: "",
+                        senderUserId: thread.senderUserId,
+                        senderName: thread.senderName,
+                        senderRole: thread.senderRole,
+                        body: "",
+                        attachmentObjectKey: null,
+                        audience: thread.audience,
+                        createdAt: thread.startedAt
+                      };
+                      return (
+                        <article key={`${dayGroup.dayKey}-${thread.senderUserId}-${thread.startedAt}-${index}`} className="message-thread">
+                          <header>
+                            <strong>{formatMessageSender(senderPreview)}</strong>
+                            <span className="message-tag">{getAudienceLabel(thread.audience)}</span>
+                            <span>{new Date(thread.startedAt).toLocaleTimeString()}</span>
+                          </header>
+                          <div className="message-thread-lines">
+                            {thread.items.map((message) => (
+                              <p key={message.id}>{message.body}</p>
+                            ))}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </section>
                 ))}
-              </section>
-            ))}
-          </div>
-          <div className="compose">
-            <input
-              ref={messageInputRef}
-              value={messageDraft}
-              onChange={(event) => setMessageDraft(event.target.value)}
-              onKeyDown={onMessageInputKeyDown}
-              placeholder="Send a message to job thread"
-              disabled={!selectedJobId}
-            />
-            <button onClick={onSendMessage} disabled={!selectedJobId || !messageDraft.trim()}>
-              Send Message
-            </button>
-          </div>
+              </div>
+              <div className="compose with-audience">
+                <select
+                  aria-label="Message audience"
+                  value={messageAudience}
+                  onChange={(event) => setMessageAudience(event.target.value as MessageAudience)}
+                  disabled={!selectedJobId}
+                >
+                  {MESSAGE_AUDIENCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  ref={messageInputRef}
+                  value={messageDraft}
+                  onChange={(event) => setMessageDraft(event.target.value)}
+                  onKeyDown={onMessageInputKeyDown}
+                  placeholder="Send a message to job thread"
+                  disabled={!selectedJobId}
+                />
+                <button onClick={onSendMessage} disabled={!selectedJobId || !messageDraft.trim()}>
+                  Send Message
+                </button>
+              </div>
+            </div>
+          )}
+
+          {focusPanel === "TIMELINE" && (
+            <>
+              <h2>Timeline</h2>
+              <div className="timeline-chips" role="group" aria-label="Timeline filters">
+                {TIMELINE_FILTERS.map((filter) => (
+                  <button key={filter} className={timelineFilter === filter ? "chip active" : "chip"} onClick={() => setTimelineFilter(filter)}>
+                    {TIMELINE_FILTER_LABELS[filter]} ({timelineCounts[filter]})
+                  </button>
+                ))}
+              </div>
+              <ul className="timeline-list">
+                {visibleTimeline.map((event) => {
+                  const eventCategory = getTimelineCategory(event.eventType);
+                  const workerId = getEventWorkerId(event);
+                  const reason = getEventReason(event);
+                  const workerLabel = workerId ? workerLabelById.get(workerId) ?? workerId : null;
+                  return (
+                    <li key={event.id} className="timeline-item">
+                      <div className="timeline-item-head">
+                        <strong>{event.eventType}</strong>
+                        <span className="timeline-tag">{TIMELINE_FILTER_LABELS[eventCategory]}</span>
+                        <span>{new Date(event.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="payload-facts">
+                        {getPayloadFacts(event.payload).map((fact) => (
+                          <span key={`${event.id}-${fact.label}`} className="payload-fact">
+                            <strong>{fact.label}:</strong> {fact.value}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="timeline-inline-actions">
+                        {workerId && workerLabel && (
+                          <button className="chip secondary" onClick={() => setSelectedWorkerId(workerId)}>
+                            Select {workerLabel}
+                          </button>
+                        )}
+                        {reason && (
+                          <button className="chip secondary" onClick={() => onUseTimelineReason(reason)}>
+                            Use reason
+                          </button>
+                        )}
+                        <button className="chip secondary" onClick={() => onQuoteTimelineEvent(event)}>
+                          Quote in message
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
         </section>
       </section>
 
-      <section className="ops-grid-layout">
-        <section className="panel ops-map">
-          <h2>Operations Map</h2>
-          <p className="queue-count">
-            {mapOverview
-              ? `${mapOverview.jobs.length} mapped jobs · ${mapOverview.workers.length} workers`
-              : "Loading map overview..."}
-          </p>
-          <div className="map-legend">
-            <span><i className="legend-dot job" /> Job</span>
-            <span><i className="legend-dot worker" /> Worker</span>
+      <section className="panel ops-shell">
+        <div className="ops-nav">
+          <h2>Operations</h2>
+          <div className="ops-tab-switch">
+            <button className={opsTab === "ROUTING" ? "chip active" : "chip"} onClick={() => setOpsTab("ROUTING")}>Routing</button>
+            <button className={opsTab === "SCHEDULING" ? "chip active" : "chip"} onClick={() => setOpsTab("SCHEDULING")}>Scheduling</button>
           </div>
-          <div className="map-canvas" aria-label="Dispatch map overview">
-            {mapPoints.map((point) => (
-              <button
-                key={point.id}
-                className={point.kind === "JOB" ? "map-point job" : "map-point worker"}
-                style={pointStyle(point.lat, point.lon)}
-                title={`${point.label} · ${formatLatLon(point.lat, point.lon)}`}
-                onClick={() => {
-                  if (point.kind === "JOB") {
-                    const jobId = point.id.replace("job-", "");
-                    setSelectedJobId(jobId);
-                  }
-                }}
-              >
-                {point.kind === "JOB" ? "J" : "W"}
-              </button>
-            ))}
-          </div>
+        </div>
 
-          <h3>Optimal Next-Job Paths</h3>
-          <ul className="route-list">
-            {(mapOverview?.routeSuggestions ?? []).slice(0, 8).map((route) => (
-              <li key={`${route.workerId}-${route.toJobId}`}>
-                <strong>{route.workerDisplayName}</strong> →{" "}
-                <button
-                  className="linkish"
-                  onClick={() => setSelectedJobId(route.toJobId)}
-                >
-                  {route.toJobDescription}
-                </button>
-                <small>
-                  {" "}
-                  · {route.distanceKm.toFixed(1)} km · ~{route.estimatedDriveMinutes} min
-                </small>
-              </li>
-            ))}
-            {mapOverview && mapOverview.routeSuggestions.length === 0 && (
-              <li><small>No route suggestions available.</small></li>
-            )}
-          </ul>
-        </section>
+        {opsTab === "ROUTING" && (
+          <div className="ops-content routing-view">
+            <div className="routing-toolbar">
+              <div className="map-scope-selector" role="group" aria-label="Map time scope">
+                {MAP_SCOPES.map((scopeOption) => (
+                  <button
+                    key={scopeOption.scope}
+                    className={mapScope === scopeOption.scope ? "chip active" : "chip"}
+                    onClick={() => setMapScope(scopeOption.scope)}
+                    title={scopeOption.hint}
+                  >
+                    {scopeOption.label}
+                  </button>
+                ))}
+              </div>
+              <p className="queue-count">
+                {mapOverview
+                  ? `${mapOverview.jobs.length} jobs · ${mapOverview.workers.length} workers · scope ${formatToken(mapOverview.scope ?? mapScope)}`
+                  : "Loading map overview..."}
+              </p>
+            </div>
 
-        <section className="panel ops-schedule">
-          <h2>Scheduling Calendar</h2>
-          {calendar ? (
-            <p className="queue-count">
-              {new Date(calendar.range.from).toLocaleDateString()} -{" "}
-              {new Date(calendar.range.to).toLocaleDateString()}
-            </p>
-          ) : (
-            <p className="queue-count">Loading schedule...</p>
-          )}
-          <div className="schedule-workers">
-            {(calendar?.workers ?? []).map((worker) => (
-              <article key={worker.workerId} className="schedule-worker-card">
-                <header>
-                  <strong>{worker.workerDisplayName}</strong>
-                  <span>{formatToken(worker.tier)}</span>
-                </header>
-                <p>
-                  <strong>Availability:</strong>{" "}
-                  {worker.availability.length > 0
-                    ? worker.availability
-                        .map((slot) => `${weekdayLabel(slot.dayOfWeek)} ${slot.startTime}-${slot.endTime}`)
-                        .join(", ")
-                    : "Not set"}
-                </p>
-                <p>
-                  <strong>Time Off:</strong>{" "}
-                  {worker.timeOff.length > 0
-                    ? worker.timeOff
-                        .map(
-                          (timeOff) =>
-                            `${new Date(timeOff.startAt).toLocaleDateString()}-${new Date(timeOff.endAt).toLocaleDateString()}`
-                        )
-                        .join(", ")
-                    : "None"}
-                </p>
-                <p>
-                  <strong>Scheduled Jobs:</strong> {worker.scheduledJobs.length}
-                </p>
-                <ul>
-                  {worker.scheduledJobs.slice(0, 3).map((job) => (
-                    <li key={job.id}>
-                      <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
-                        {job.description}
-                      </button>{" "}
-                      <small>{job.scheduleWindowStart ? new Date(job.scheduleWindowStart).toLocaleString() : "No window"}</small>
-                    </li>
+            <div className="map-panel">
+              {mapPoints.length > 0 ? (
+                <LeafletMapContainer center={[mapPoints[0].lat, mapPoints[0].lon]} zoom={10} scrollWheelZoom className="routing-map">
+                  <LeafletTileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <FitMapBounds points={mapPoints} />
+                  {(mapOverview?.routeSuggestions ?? []).slice(0, 12).map((route) => (
+                    <LeafletPolyline
+                      key={`${route.workerId}-${route.toJobId}`}
+                      positions={[
+                        [route.from.lat, route.from.lon],
+                        [route.to.lat, route.to.lon]
+                      ]}
+                      pathOptions={{ color: "#5cb3ff", weight: 2, dashArray: "6 6" }}
+                    />
                   ))}
-                </ul>
-              </article>
-            ))}
-          </div>
+                  {mapPoints.map((point) => (
+                    <LeafletCircleMarker
+                      key={point.id}
+                      center={[point.lat, point.lon]}
+                      radius={point.kind === "JOB" ? 9 : 7}
+                      pathOptions={{
+                        color: "#00131f",
+                        weight: 1,
+                        fillColor: getMapPointColor(point),
+                        fillOpacity: 0.92
+                      }}
+                      eventHandlers={{
+                        click: () => {
+                          if (point.kind === "JOB") {
+                            const jobId = point.id.replace("job-", "");
+                            setSelectedJobId(jobId);
+                          }
+                        }
+                      }}
+                    >
+                      <LeafletPopup>
+                        <div className="popup-content">
+                          <strong>{point.label}</strong>
+                          <p>{formatLatLon(point.lat, point.lon)}</p>
+                          {point.kind === "JOB" && (
+                            <button className="secondary" onClick={() => setSelectedJobId(point.id.replace("job-", ""))}>
+                              Open Job
+                            </button>
+                          )}
+                        </div>
+                      </LeafletPopup>
+                    </LeafletCircleMarker>
+                  ))}
+                </LeafletMapContainer>
+              ) : (
+                <div className="map-empty-state">No map points available for selected scope.</div>
+              )}
+            </div>
 
-          <h3>Unassigned Jobs</h3>
-          <ul className="route-list">
-            {(calendar?.unassignedJobs ?? []).slice(0, 10).map((job) => (
-              <li key={job.id}>
-                <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
-                  {job.description}
-                </button>
-                <small> · {job.status} · {job.urgency}</small>
-              </li>
-            ))}
-            {calendar && calendar.unassignedJobs.length === 0 && (
-              <li><small>No unassigned jobs in range.</small></li>
+            <h3>Optimal Next-Job Paths</h3>
+            <ul className="route-list">
+              {(mapOverview?.routeSuggestions ?? []).slice(0, 10).map((route) => (
+                <li key={`${route.workerId}-${route.toJobId}`}>
+                  <strong>{route.workerDisplayName}</strong> →{" "}
+                  <button className="linkish" onClick={() => setSelectedJobId(route.toJobId)}>
+                    {route.toJobDescription}
+                  </button>
+                  <small> · {route.distanceKm.toFixed(1)} km · ~{route.estimatedDriveMinutes} min</small>
+                </li>
+              ))}
+              {mapOverview && mapOverview.routeSuggestions.length === 0 && (
+                <li><small>No route suggestions available.</small></li>
+              )}
+            </ul>
+          </div>
+        )}
+
+        {opsTab === "SCHEDULING" && (
+          <div className="ops-content">
+            <h3>Scheduling Calendar</h3>
+            {calendar ? (
+              <p className="queue-count">
+                {new Date(calendar.range.from).toLocaleDateString()} - {new Date(calendar.range.to).toLocaleDateString()}
+              </p>
+            ) : (
+              <p className="queue-count">Loading schedule...</p>
             )}
-          </ul>
-        </section>
+            <div className="schedule-workers">
+              {(calendar?.workers ?? []).map((worker) => (
+                <article key={worker.workerId} className="schedule-worker-card">
+                  <header>
+                    <strong>{worker.workerDisplayName}</strong>
+                    <span>{formatToken(worker.tier)}</span>
+                  </header>
+                  <p>
+                    <strong>Availability:</strong>{" "}
+                    {worker.availability.length > 0
+                      ? worker.availability
+                          .map((slot) => `${weekdayLabel(slot.dayOfWeek)} ${slot.startTime}-${slot.endTime}`)
+                          .join(", ")
+                      : "Not set"}
+                  </p>
+                  <p>
+                    <strong>Time Off:</strong>{" "}
+                    {worker.timeOff.length > 0
+                      ? worker.timeOff
+                          .map((timeOff) => `${new Date(timeOff.startAt).toLocaleDateString()}-${new Date(timeOff.endAt).toLocaleDateString()}`)
+                          .join(", ")
+                      : "None"}
+                  </p>
+                  <p><strong>Scheduled Jobs:</strong> {worker.scheduledJobs.length}</p>
+                  <ul>
+                    {worker.scheduledJobs.slice(0, 3).map((job) => (
+                      <li key={job.id}>
+                        <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
+                          {job.description}
+                        </button>{" "}
+                        <small>{job.scheduleWindowStart ? new Date(job.scheduleWindowStart).toLocaleString() : "No window"}</small>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </div>
+
+            <h3>Unassigned Jobs</h3>
+            <ul className="route-list">
+              {(calendar?.unassignedJobs ?? []).slice(0, 10).map((job) => (
+                <li key={job.id}>
+                  <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
+                    {job.description}
+                  </button>
+                  <small> · {job.status} · {job.urgency}</small>
+                </li>
+              ))}
+              {calendar && calendar.unassignedJobs.length === 0 && (
+                <li><small>No unassigned jobs in range.</small></li>
+              )}
+            </ul>
+          </div>
+        )}
       </section>
     </main>
   );

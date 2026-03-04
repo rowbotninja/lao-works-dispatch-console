@@ -4,6 +4,7 @@ import {
   DispatchCalendar,
   DispatchMapOverview,
   Job,
+  MapScope,
   Message,
   TimelineEvent
 } from "./types";
@@ -47,8 +48,24 @@ export const login = (identifier: string, password: string): Promise<AuthTokens>
 export const getQueue = (accessToken: string): Promise<{ items: Job[] }> =>
   apiRequest<{ items: Job[] }>("/dispatch/jobs/queue", { method: "GET" }, accessToken);
 
-export const getMapOverview = (accessToken: string): Promise<DispatchMapOverview> =>
-  apiRequest<DispatchMapOverview>("/dispatch/map-overview", { method: "GET" }, accessToken);
+export const getMapOverview = (
+  accessToken: string,
+  scope: MapScope,
+  fromIso?: string,
+  toIso?: string
+): Promise<DispatchMapOverview> => {
+  const params = new URLSearchParams();
+  params.set("scope", scope);
+  if (fromIso && toIso) {
+    params.set("from", fromIso);
+    params.set("to", toIso);
+  }
+  return apiRequest<DispatchMapOverview>(
+    `/dispatch/map-overview?${params.toString()}`,
+    { method: "GET" },
+    accessToken
+  );
+};
 
 export const getDispatchCalendar = (
   accessToken: string,
@@ -113,12 +130,17 @@ export const getTimeline = (accessToken: string, jobId: string): Promise<{ items
 export const getMessages = (accessToken: string, jobId: string): Promise<{ items: Message[] }> =>
   apiRequest<{ items: Message[] }>(`/jobs/${jobId}/messages`, { method: "GET" }, accessToken);
 
-export const sendMessage = (accessToken: string, jobId: string, body: string): Promise<Message> =>
+export const sendMessage = (
+  accessToken: string,
+  jobId: string,
+  body: string,
+  audience: "CLIENT" | "WORKER" | "BOTH"
+): Promise<Message> =>
   apiRequest<Message>(
     `/jobs/${jobId}/messages`,
     {
       method: "POST",
-      body: JSON.stringify({ body })
+      body: JSON.stringify({ body, audience })
     },
     accessToken
   );

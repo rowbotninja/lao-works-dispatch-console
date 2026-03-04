@@ -49,13 +49,23 @@ export type Message = {
   id: string;
   threadId: string;
   senderUserId: string;
+  senderName?: string | null;
+  senderRole?: string | null;
   body: string;
   attachmentObjectKey: string | null;
+  audience?: "CLIENT" | "WORKER" | "BOTH";
   createdAt: string;
 };
 
+export type MapScope = "TODAY" | "FUTURE" | "PAST" | "ALL";
+
 export type DispatchMapOverview = {
   generatedAt: string;
+  scope?: MapScope;
+  range?: {
+    from: string;
+    to: string;
+  } | null;
   jobs: Array<{
     id: string;
     status: string;

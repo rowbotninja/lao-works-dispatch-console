@@ -1,9 +1,22 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import * as api from "./api";
 import { Candidate, Job, Message, TimelineEvent } from "./types";
+
+vi.mock("react-leaflet", () => ({
+  MapContainer: ({ children }: { children: ReactNode }) => <div data-testid="routing-map">{children}</div>,
+  TileLayer: () => null,
+  CircleMarker: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Popup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Polyline: () => null,
+  useMap: () => ({
+    setView: vi.fn(),
+    fitBounds: vi.fn()
+  })
+}));
 
 vi.mock("./api", () => ({
   login: vi.fn(),
@@ -86,24 +99,33 @@ const baseMessagesFixture: Message[] = [
     id: "m-1",
     threadId: "thread-1",
     senderUserId: "client-1",
+    senderName: "Front Desk",
+    senderRole: "CLIENT",
     body: "Please prioritize this.",
     attachmentObjectKey: null,
+    audience: "BOTH",
     createdAt: "2026-03-04T10:12:00.000Z"
   },
   {
     id: "m-2",
     threadId: "thread-1",
     senderUserId: "client-1",
+    senderName: "Front Desk",
+    senderRole: "CLIENT",
     body: "Lobby access is open.",
     attachmentObjectKey: null,
+    audience: "BOTH",
     createdAt: "2026-03-04T10:14:00.000Z"
   },
   {
     id: "m-3",
     threadId: "thread-1",
     senderUserId: "dispatch-1",
+    senderName: "Primary Dispatch",
+    senderRole: "DISPATCH",
     body: "Acknowledged, assigning now.",
     attachmentObjectKey: null,
+    audience: "BOTH",
     createdAt: "2026-03-04T10:20:00.000Z"
   }
 ];
@@ -145,6 +167,8 @@ describe("Dispatch Console", () => {
     mockedApi.getQueue.mockResolvedValue({ items: jobsFixture });
     mockedApi.getMapOverview.mockResolvedValue({
       generatedAt: "2026-03-04T10:00:00.000Z",
+      scope: "TODAY",
+      range: null,
       jobs: [],
       workers: [],
       routeSuggestions: []
@@ -171,8 +195,11 @@ describe("Dispatch Console", () => {
       id: "m-2",
       threadId: "thread-1",
       senderUserId: "dispatch-1",
+      senderRole: "DISPATCH",
+      senderName: "Primary Dispatch",
       body: "Acknowledged",
       attachmentObjectKey: null,
+      audience: "BOTH",
       createdAt: "2026-03-04T10:20:00.000Z"
     });
   });
@@ -213,13 +240,15 @@ describe("Dispatch Console", () => {
       )
     );
 
+    await user.click(screen.getByRole("button", { name: "Messages" }));
     await user.type(screen.getByPlaceholderText("Send a message to job thread"), "Please confirm ETA");
     await user.click(screen.getByRole("button", { name: "Send Message" }));
     await waitFor(() =>
       expect(mockedApi.sendMessage).toHaveBeenCalledWith(
         "access-token",
         "job-2",
-        "Please confirm ETA"
+        "Please confirm ETA",
+        "BOTH"
       )
     );
   });
@@ -240,7 +269,7 @@ describe("Dispatch Console", () => {
     );
     const jobCard = screen.getByRole("button", { name: /Inspect AC airflow and controls/i });
     expect(jobCard).toBeInTheDocument();
-    expect(jobCard).toHaveTextContent("job-2");
+    expect(screen.getByTestId("selected-job-id")).toHaveTextContent("job-2");
 
     await user.selectOptions(screen.getByLabelText("Skill filter"), "HVAC");
     expect(screen.getAllByText("Inspect AC airflow and controls").length).toBeGreaterThan(0);
@@ -263,6 +292,7 @@ describe("Dispatch Console", () => {
       expect(screen.getByTestId("selected-job-id")).toHaveTextContent("job-2")
     );
 
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
     await user.click(screen.getByRole("button", { name: /Assignment/i }));
     expect(screen.getByText("JOB_ASSIGNED")).toBeInTheDocument();
     expect(screen.queryByText("JOB_CREATED")).not.toBeInTheDocument();
@@ -292,11 +322,11 @@ describe("Dispatch Console", () => {
       expect(mockedApi.sendMessage).toHaveBeenCalledWith(
         "access-token",
         "job-2",
-        "Keyboard dispatch update"
+        "Keyboard dispatch update",
+        "BOTH"
       )
     );
 
-    expect(screen.getAllByText(/client-1/).length).toBe(1);
     expect(screen.getByText("Lobby access is open.")).toBeInTheDocument();
   });
 });
