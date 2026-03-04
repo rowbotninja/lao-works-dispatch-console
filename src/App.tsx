@@ -187,6 +187,30 @@ const formatOptionalTimestamp = (value: string | null | undefined): string => {
   return new Date(parsed).toLocaleString();
 };
 
+const toLocalDateTimeInputValue = (value: string | Date | null | undefined): string => {
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === "string"
+        ? new Date(value)
+        : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const pad = (segment: number) => String(segment).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(
+    date.getMinutes()
+  )}`;
+};
+
+const localDateTimeInputToIso = (value: string): string | null => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+};
+
 const getDefaultDispatchActionPayload = (
   action: string,
   selectedJob: Job | null,
@@ -625,6 +649,8 @@ function App() {
   const [priorityLevel, setPriorityLevel] = useState("HIGH");
   const [requestPatchDescription, setRequestPatchDescription] = useState("");
   const [requestPatchUrgency, setRequestPatchUrgency] = useState("HIGH");
+  const [rescheduleStartLocal, setRescheduleStartLocal] = useState("");
+  const [rescheduleEndLocal, setRescheduleEndLocal] = useState("");
   const overrideReasonInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
   const selectedJobIdRef = useRef<string | null>(null);
@@ -662,7 +688,10 @@ function App() {
   const dispatchActionButtons = useMemo(
     () =>
       Array.from(selectedJobActionSet)
-        .filter((action) => action !== "PRIORITIZE_JOB" && action !== "EDIT_REQUEST_FIELDS_WITH_AUDIT")
+        .filter(
+          (action) =>
+            action !== "PRIORITIZE_JOB" && action !== "EDIT_REQUEST_FIELDS_WITH_AUDIT" && action !== "RESCHEDULE"
+        )
         .sort()
         .map((action) => ({
           action,
@@ -1015,6 +1044,17 @@ function App() {
     setPriorityLevel(normalizeToken(selectedJob.urgency));
     setRequestPatchDescription(selectedJob.description ?? "");
     setRequestPatchUrgency(normalizeToken(selectedJob.urgency));
+    const now = Date.now();
+    setRescheduleStartLocal(
+      toLocalDateTimeInputValue(
+        selectedJob.scheduleWindowStart ?? new Date(now + 60 * 60 * 1000)
+      )
+    );
+    setRescheduleEndLocal(
+      toLocalDateTimeInputValue(
+        selectedJob.scheduleWindowEnd ?? new Date(now + 2 * 60 * 60 * 1000)
+      )
+    );
   }, [selectedJob?.id]);
 
   useEffect(() => {
@@ -1161,6 +1201,26 @@ function App() {
       audit: { reasonCode: "dispatcher_override" }
     });
   }, [onRunJobAction, requestPatchDescription, requestPatchUrgency, selectedJob, selectedJobActionSet]);
+
+  const onRescheduleJob = useCallback(async () => {
+    if (!selectedJobActionSet.has("RESCHEDULE")) {
+      return;
+    }
+    const startAt = localDateTimeInputToIso(rescheduleStartLocal);
+    const endAt = localDateTimeInputToIso(rescheduleEndLocal);
+    if (!startAt || !endAt) {
+      setError("Select valid schedule start and end times.");
+      return;
+    }
+    if (Date.parse(endAt) <= Date.parse(startAt)) {
+      setError("Schedule end must be after the start time.");
+      return;
+    }
+    await onRunJobAction("RESCHEDULE", {
+      schedule: { startAt, endAt },
+      audit: { reasonCode: "dispatcher_override" }
+    });
+  }, [onRunJobAction, rescheduleEndLocal, rescheduleStartLocal, selectedJobActionSet]);
 
   const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
@@ -1525,6 +1585,29 @@ function App() {
                     </label>
                     <button className="secondary" onClick={() => void onEditRequestWithAudit()}>
                       Apply Request Edit (Audit)
+                    </button>
+                  </div>
+                )}
+                {selectedJobActionSet.has("RESCHEDULE") && (
+                  <div className="workflow-action-inline">
+                    <label>
+                      Start
+                      <input
+                        type="datetime-local"
+                        value={rescheduleStartLocal}
+                        onChange={(event) => setRescheduleStartLocal(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      End
+                      <input
+                        type="datetime-local"
+                        value={rescheduleEndLocal}
+                        onChange={(event) => setRescheduleEndLocal(event.target.value)}
+                      />
+                    </label>
+                    <button className="secondary" onClick={() => void onRescheduleJob()}>
+                      Apply Reschedule
                     </button>
                   </div>
                 )}
