@@ -2,6 +2,7 @@ import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect,
 import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import {
   assignWorker,
+  getJobDetail,
   getCandidates,
   getDispatchCalendar,
   getMapOverview,
@@ -11,7 +12,8 @@ import {
   login,
   recomputeCandidates,
   sendMessage,
-  overrideWorker
+  overrideWorker,
+  runJobAction
 } from "./api";
 import { Candidate, DispatchCalendar, DispatchMapOverview, Job, MapScope, Message, TimelineEvent } from "./types";
 
@@ -151,6 +153,181 @@ const formatToken = (value: string): string =>
     .split("_")
     .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1).toLowerCase())
     .join(" ");
+
+const workflowToLegacyStatus = (workflowState: string): string => {
+  const state = normalizeToken(workflowState);
+  if (state === "REQUESTED" || state === "DRAFT") return "REQUESTED";
+  if (state === "DISPATCHING" || state === "OFFER_EXPIRED") return "TRIAGED";
+  if (state === "OFFERED") return "OFFERED";
+  if (state === "WORKER_ACCEPTED" || state === "CLIENT_CONFIRMED" || state === "SCHEDULED") return "ASSIGNED";
+  if (state === "COMPLETED") return "COMPLETED";
+  if (state === "CANCELLED") return "CANCELLED";
+  return "IN_PROGRESS";
+};
+
+const getJobLegacyStatus = (job: Job): string =>
+  job.workflowState ? workflowToLegacyStatus(job.workflowState) : normalizeToken(job.status);
+
+const getJobStatusLabel = (job: Job): string =>
+  job.publicStatus?.trim() || formatToken(job.workflowState ?? job.status);
+
+const getDispatchUnreadCount = (job: Job): number =>
+  (job.readReceiptsSummary?.messages?.unreadForDispatch ?? 0) +
+  (job.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0) +
+  (job.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0);
+
+const formatOptionalTimestamp = (value: string | null | undefined): string => {
+  if (!value) {
+    return "Never";
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return value;
+  }
+  return new Date(parsed).toLocaleString();
+};
+
+const getDefaultDispatchActionPayload = (
+  action: string,
+  selectedJob: Job | null,
+  selectedWorkerId: string | null
+): Record<string, unknown> | null => {
+  const now = Date.now();
+  const defaultScheduleStart = selectedJob?.scheduleWindowStart ?? new Date(now + 60 * 60 * 1000).toISOString();
+  const defaultScheduleEnd = selectedJob?.scheduleWindowEnd ?? new Date(now + 2 * 60 * 60 * 1000).toISOString();
+
+  switch (action) {
+    case "EDIT_REQUEST_FIELDS_WITH_AUDIT":
+      return {
+        requestPatch: {},
+        audit: { reasonCode: "dispatcher_override" }
+      };
+    case "PRIORITIZE_JOB":
+      return { priority: { level: "high" }, audit: { reasonCode: "dispatcher_override" } };
+    case "ADJUST_PRICING":
+      return {
+        pricingAdjustment: {
+          type: "set_urgency_surcharge",
+          amount: 0,
+          note: "Dispatch adjustment"
+        },
+        audit: { reasonCode: "pricing_correction" }
+      };
+    case "APPLY_OVERRIDES":
+      return {
+        overrides: {
+          radiusOverrideKm: 50
+        },
+        audit: { reasonCode: "dispatcher_override" }
+      };
+    case "FORCE_ASSIGN_WORKER":
+      if (!selectedWorkerId) {
+        return null;
+      }
+      return {
+        workerId: selectedWorkerId,
+        audit: { reasonCode: "dispatcher_override" }
+      };
+    case "OVERRIDE_CONFIRMATION":
+      return { audit: { reasonCode: "dispatcher_override" } };
+    case "RESCHEDULE":
+      return {
+        schedule: {
+          startAt: defaultScheduleStart,
+          endAt: defaultScheduleEnd
+        },
+        audit: { reasonCode: "dispatcher_override" }
+      };
+    case "REASSIGN_WORKER":
+      return { audit: { reasonCode: "dispatcher_override" } };
+    case "CANCEL_OFFER_AND_REDISPATCH":
+      return { audit: { reasonCode: "dispatcher_override" } };
+    case "MEDIATE_CHANGE_ORDER":
+      return {
+        mediation: {
+          proposedAddedLaborCost: 0,
+          proposedAddedMaterialCost: 0,
+          proposedAddedTimeEstimateMinutes: 60,
+          dispatcherNotes: "Mediated by dispatch"
+        },
+        audit: { reasonCode: "dispute_resolution" }
+      };
+    case "EMERGENCY_OVERRIDE_APPROVAL":
+      return {
+        override: {
+          reasonCode: "urgent",
+          note: "Emergency override approved by dispatch"
+        }
+      };
+    case "UNLOCK_EVIDENCE_FOR_CORRECTION":
+      return {
+        unlock: {
+          windowMinutes: 60
+        },
+        audit: { reasonCode: "missing_required_photos" }
+      };
+    case "REQUEST_MORE_INFO":
+      return {
+        request: {
+          targetRole: "client",
+          message: "Please provide additional dispute details."
+        }
+      };
+    case "OPEN_DISPUTE_DISPATCH":
+      return {
+        dispute: {
+          type: "invoice_dispute",
+          reasonCode: "dispatcher_override",
+          description: "Dispatch opened dispute for manual review."
+        }
+      };
+    case "CONFIRM_PAYMENT":
+      return {
+        paymentConfirmation: {
+          confirmedAmount: 0,
+          confirmedAt: new Date().toISOString()
+        }
+      };
+    case "REJECT_PAYMENT_PROOF":
+      return {
+        paymentReject: {
+          reasonCode: "amount_mismatch"
+        }
+      };
+    case "CANCEL_JOB":
+    case "CANCEL_JOB_WITH_REASON":
+      return { audit: { reasonCode: "dispatcher_override" } };
+    case "RECORD_NO_SHOW":
+      return { noShowParty: "worker" };
+    case "APPROVE_DISPUTE":
+    case "REJECT_DISPUTE":
+      return {
+        dispute: {
+          decisionReason: "Reviewed by dispatch"
+        }
+      };
+    case "SCHEDULE_REMEDIATION":
+      return {
+        remediation: {
+          scheduleWindow: {
+            startAt: defaultScheduleStart,
+            endAt: defaultScheduleEnd
+          }
+        }
+      };
+    case "APPLY_REFUND_ADJUSTMENT":
+      return {
+        adjustment: {
+          amount: 0,
+          reasonCode: "dispute_resolution"
+        }
+      };
+    case "COMPLETE_JOB":
+      return { note: "Completed by dispatch action" };
+    default:
+      return {};
+  }
+};
 
 const formatJobHeadline = (job: Job): string => {
   const description = job.description?.trim() || formatToken(job.jobType);
@@ -344,7 +521,7 @@ const isPastDue = (job: Job): boolean => {
   if (Number.isNaN(windowEnd)) {
     return false;
   }
-  return windowEnd < Date.now() && !["COMPLETED", "CANCELLED"].includes(normalizeToken(job.status));
+  return windowEnd < Date.now() && !["COMPLETED", "CANCELLED"].includes(getJobLegacyStatus(job));
 };
 
 const getAudienceLabel = (audience: MessageAudience): string => {
@@ -449,6 +626,10 @@ function App() {
   const messageInputRef = useRef<HTMLInputElement>(null);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? null, [jobs, selectedJobId]);
+  const selectedJobActionSet = useMemo(
+    () => new Set((selectedJob?.availableWorkflowActions ?? []).map((action) => normalizeToken(action))),
+    [selectedJob?.availableWorkflowActions]
+  );
 
   const workerLabelById = useMemo(() => {
     const labels = new Map<string, string>();
@@ -473,6 +654,17 @@ function App() {
     }
     return workerLabelById.get(selectedWorkerId) ?? selectedWorkerId;
   }, [selectedWorkerId, workerLabelById]);
+
+  const dispatchActionButtons = useMemo(
+    () =>
+      Array.from(selectedJobActionSet)
+        .sort()
+        .map((action) => ({
+          action,
+          payload: getDefaultDispatchActionPayload(action, selectedJob, selectedWorkerId)
+        })),
+    [selectedJob, selectedJobActionSet, selectedWorkerId]
+  );
 
   const timelineCounts = useMemo(() => {
     const counts: Record<TimelineFilter, number> = {
@@ -550,7 +742,7 @@ function App() {
 
   const filteredJobs = useMemo(() => {
     const visibleJobs = jobs.filter((job) => {
-      const status = normalizeToken(job.status);
+      const status = getJobLegacyStatus(job);
       const urgency = normalizeToken(job.urgency);
       const skillSet = new Set(job.requiredSkills.map(normalizeToken));
       const personalitySet = new Set(job.personalityPreferences.map(normalizeToken));
@@ -575,8 +767,8 @@ function App() {
         return leftPriority - rightPriority;
       }
 
-      const leftPriority = STATUS_SORT_PRIORITY[normalizeToken(left.status)] ?? 999;
-      const rightPriority = STATUS_SORT_PRIORITY[normalizeToken(right.status)] ?? 999;
+      const leftPriority = STATUS_SORT_PRIORITY[getJobLegacyStatus(left)] ?? 999;
+      const rightPriority = STATUS_SORT_PRIORITY[getJobLegacyStatus(right)] ?? 999;
       return leftPriority - rightPriority;
     });
 
@@ -617,7 +809,7 @@ function App() {
       urgent: 0
     };
     for (const job of filteredJobs) {
-      const status = normalizeToken(job.status);
+      const status = getJobLegacyStatus(job);
       const urgency = normalizeToken(job.urgency);
       if (status === "REQUESTED" || status === "TRIAGED" || status === "OFFERED") {
         stats.requested += 1;
@@ -651,7 +843,7 @@ function App() {
       });
     }
 
-    const status = normalizeToken(selectedJob.status);
+    const status = getJobLegacyStatus(selectedJob);
     if (["REQUESTED", "TRIAGED", "OFFERED"].includes(status) && Date.now() - Date.parse(selectedJob.createdAt) > 2 * 60 * 60 * 1000) {
       signals.push({
         id: "stale-unassigned",
@@ -741,11 +933,13 @@ function App() {
         return;
       }
       try {
-        const [candidatePayload, timelinePayload, messagePayload] = await Promise.all([
+        const [jobDetail, candidatePayload, timelinePayload, messagePayload] = await Promise.all([
+          getJobDetail(session.accessToken, jobId),
           getCandidates(session.accessToken, jobId),
           getTimeline(session.accessToken, jobId),
           getMessages(session.accessToken, jobId)
         ]);
+        setJobs((previous) => previous.map((job) => (job.id === jobId ? { ...job, ...jobDetail } : job)));
         const nextCandidates = (candidatePayload.candidates ?? [])
           .slice()
           .sort((left, right) => left.rank - right.rank);
@@ -870,6 +1064,20 @@ function App() {
       setError(err instanceof Error ? err.message : "Override failed");
     }
   }, [overrideReason, selectedJobId, selectedWorkerId, session]);
+
+  const onRunJobAction = useCallback(
+    async (action: string, payload: Record<string, unknown>) => {
+      if (!session || !selectedJobId) return;
+      try {
+        await runJobAction(session.accessToken, selectedJobId, action, payload);
+        await refreshPanelsAfterMutation();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : `Action ${action} failed`);
+      }
+    },
+    [selectedJobId, session]
+  );
 
   const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
@@ -1145,9 +1353,10 @@ function App() {
                   {isPastDue(job) && <span className="signal-pill critical">Overdue</span>}
                 </div>
                 <div className="job-meta">
-                  <span className="badge">{job.status}</span>
+                  <span className="badge">{getJobStatusLabel(job)}</span>
                   <span className="badge">{job.urgency}</span>
                   <span className="badge">{job.requiredSkills.length} skills</span>
+                  {getDispatchUnreadCount(job) > 0 && <span className="badge">Unread {getDispatchUnreadCount(job)}</span>}
                 </div>
                 <small>
                   {formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}
@@ -1167,8 +1376,15 @@ function App() {
                 <p><strong>Job:</strong> {formatJobHeadline(selectedJob)}</p>
                 <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
                 <p data-testid="selected-job-id"><strong>Record ID:</strong> {selectedJob.id}</p>
-                <p><strong>Status:</strong> {selectedJob.status}</p>
+                <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
+                <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
                 <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
+                <p>
+                  <strong>Read Receipts:</strong>{" "}
+                  Msg unread {selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0} ·
+                  Change orders unread {selectedJob.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0} ·
+                  Payment unread {selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0}
+                </p>
                 <p>
                   <strong>Window:</strong>{" "}
                   {selectedJob.scheduleWindowStart && selectedJob.scheduleWindowEnd
@@ -1190,6 +1406,24 @@ function App() {
                 <button onClick={onOverride} disabled={!selectedWorkerId || !overrideReason.trim()}>
                   Override Selected Candidate
                 </button>
+                {dispatchActionButtons.length > 0 && (
+                  <div className="workflow-action-stack">
+                    <small>Workflow actions</small>
+                    <div className="workflow-action-grid">
+                      {dispatchActionButtons.map(({ action, payload }) => (
+                        <button
+                          key={action}
+                          className="secondary"
+                          onClick={() => payload && void onRunJobAction(action, payload)}
+                          disabled={!payload}
+                          title={!payload ? "Select a candidate first" : undefined}
+                        >
+                          {formatToken(action)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <h3>Candidates</h3>
@@ -1278,7 +1512,8 @@ function App() {
                   <p><strong>Headline:</strong> {formatJobHeadline(selectedJob)}</p>
                   <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
                   <p><strong>Record ID:</strong> {selectedJob.id}</p>
-                  <p><strong>Status:</strong> {selectedJob.status}</p>
+                  <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
+                  <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
                   <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
                   <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
                   <p><strong>Personality:</strong> {selectedJob.personalityPreferences.join(", ") || "None"}</p>
@@ -1286,6 +1521,24 @@ function App() {
                     <strong>Assigned Worker:</strong>{" "}
                     {selectedJob.assignedWorkerDisplayName ?? selectedJob.assignedWorkerId ?? "Not assigned"}
                   </p>
+                  <div className="read-receipt-summary">
+                    <p>
+                      <strong>Dispatch Read Receipts:</strong>{" "}
+                      {getDispatchUnreadCount(selectedJob)} unread total
+                    </p>
+                    <p>
+                      Messages: {selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0} unread · last read{" "}
+                      {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.messages?.lastReadAt)}
+                    </p>
+                    <p>
+                      Change orders: {selectedJob.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0} unread · last read{" "}
+                      {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.changeOrders?.lastReadAt)}
+                    </p>
+                    <p>
+                      Payment requests: {selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0} unread · last read{" "}
+                      {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.paymentRequests?.lastReadAt)}
+                    </p>
+                  </div>
                   <p>
                     <strong>Window:</strong>{" "}
                     {selectedJob.scheduleWindowStart && selectedJob.scheduleWindowEnd

@@ -12,6 +12,8 @@ export type Job = {
   clientOrganizationName?: string | null;
   clientDisplayName?: string;
   status: string;
+  workflowState?: string;
+  publicStatus?: string;
   jobType: string;
   description: string;
   urgency: string;
@@ -23,6 +25,12 @@ export type Job = {
   assignedWorkerName?: string | null;
   assignedWorkerEmail?: string | null;
   assignedWorkerDisplayName?: string | null;
+  readReceiptsSummary?: {
+    changeOrders?: { total: number; unreadForDispatch: number; lastReadAt: string | null };
+    paymentRequests?: { total: number; unreadForDispatch: number; lastReadAt: string | null };
+    messages?: { total: number; unreadForDispatch: number; lastReadAt: string | null };
+  };
+  availableWorkflowActions?: string[];
   location?: { lat: number; lon: number } | null;
   createdAt: string;
 };

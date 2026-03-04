@@ -21,6 +21,7 @@ vi.mock("react-leaflet", () => ({
 vi.mock("./api", () => ({
   login: vi.fn(),
   getQueue: vi.fn(),
+  getJobDetail: vi.fn(),
   getMapOverview: vi.fn(),
   getDispatchCalendar: vi.fn(),
   getCandidates: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("./api", () => ({
   recomputeCandidates: vi.fn(),
   assignWorker: vi.fn(),
   overrideWorker: vi.fn(),
+  runJobAction: vi.fn(),
   sendMessage: vi.fn()
 }));
 
@@ -40,6 +42,8 @@ const jobsFixture: Job[] = [
     clientId: "client-1",
     clientOrganizationName: "Riverside Hotel",
     status: "REQUESTED",
+    workflowState: "REQUESTED",
+    publicStatus: "Request sent",
     jobType: "Generator Repair",
     description: "Repair backup generator unit",
     urgency: "HIGH",
@@ -54,6 +58,8 @@ const jobsFixture: Job[] = [
     clientId: "client-2",
     clientName: "Mina Phommathat",
     status: "ASSIGNED",
+    workflowState: "SCHEDULED",
+    publicStatus: "Scheduled",
     jobType: "HVAC Inspection",
     description: "Inspect AC airflow and controls",
     urgency: "NORMAL",
@@ -165,6 +171,30 @@ describe("Dispatch Console", () => {
       expiresInSeconds: 3600
     });
     mockedApi.getQueue.mockResolvedValue({ items: jobsFixture });
+    mockedApi.getJobDetail.mockImplementation(async (_token, jobId) => {
+      const matched = jobsFixture.find((job) => job.id === jobId);
+      if (!matched) {
+        throw new Error("job not found");
+      }
+      return {
+        ...matched,
+        availableWorkflowActions:
+          jobId === "job-2"
+            ? [
+                "REASSIGN_WORKER",
+                "RESCHEDULE",
+                "CANCEL_JOB",
+                "FORCE_ASSIGN_WORKER",
+                "PRIORITIZE_JOB"
+              ]
+            : ["PRIORITIZE_JOB", "FORCE_ASSIGN_WORKER"],
+        readReceiptsSummary: {
+          messages: { total: 3, unreadForDispatch: 1, lastReadAt: "2026-03-04T10:20:00.000Z" },
+          changeOrders: { total: 1, unreadForDispatch: 0, lastReadAt: "2026-03-04T10:18:00.000Z" },
+          paymentRequests: { total: 1, unreadForDispatch: 0, lastReadAt: "2026-03-04T10:19:00.000Z" }
+        }
+      };
+    });
     mockedApi.getMapOverview.mockResolvedValue({
       generatedAt: "2026-03-04T10:00:00.000Z",
       scope: "TODAY",
@@ -191,6 +221,7 @@ describe("Dispatch Console", () => {
     }));
     mockedApi.assignWorker.mockResolvedValue(jobsFixture[1]);
     mockedApi.overrideWorker.mockResolvedValue(jobsFixture[1]);
+    mockedApi.runJobAction.mockResolvedValue({ job: jobsFixture[1] });
     mockedApi.sendMessage.mockResolvedValue({
       id: "m-2",
       threadId: "thread-1",

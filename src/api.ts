@@ -48,6 +48,9 @@ export const login = (identifier: string, password: string): Promise<AuthTokens>
 export const getQueue = (accessToken: string): Promise<{ items: Job[] }> =>
   apiRequest<{ items: Job[] }>("/dispatch/jobs/queue", { method: "GET" }, accessToken);
 
+export const getJobDetail = (accessToken: string, jobId: string): Promise<Job> =>
+  apiRequest<Job>(`/jobs/${jobId}`, { method: "GET" }, accessToken);
+
 export const getMapOverview = (
   accessToken: string,
   scope: MapScope,
@@ -120,6 +123,21 @@ export const overrideWorker = (
     {
       method: "POST",
       body: JSON.stringify({ workerId, reason })
+    },
+    accessToken
+  );
+
+export const runJobAction = (
+  accessToken: string,
+  jobId: string,
+  action: string,
+  payload: Record<string, unknown> = {}
+): Promise<{ job: Job }> =>
+  apiRequest<{ job: Job }>(
+    `/jobs/${jobId}/actions`,
+    {
+      method: "POST",
+      body: JSON.stringify({ action, payload })
     },
     accessToken
   );
