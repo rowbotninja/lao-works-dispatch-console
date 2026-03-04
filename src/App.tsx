@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignWorker,
   getCandidates,
@@ -15,6 +15,19 @@ import { Candidate, Job, Message, TimelineEvent } from "./types";
 type Session = {
   accessToken: string;
   refreshToken: string;
+};
+
+type MessageThreadGroup = {
+  senderUserId: string;
+  startedAt: string;
+  endedAt: string;
+  items: Message[];
+};
+
+type MessageDayGroup = {
+  dayKey: string;
+  dayLabel: string;
+  threads: MessageThreadGroup[];
 };
 
 const JOB_STATUSES = ["REQUESTED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
@@ -41,6 +54,7 @@ const DEFAULT_PERSONALITY_TAGS = [
 ] as const;
 
 type QueueSort = "NEWEST" | "OLDEST" | "URGENCY" | "STATUS";
+type TimelineFilter = "ALL" | "ASSIGNMENT" | "LIFECYCLE" | "MESSAGING" | "SYSTEM";
 
 const STATUS_SORT_PRIORITY: Record<string, number> = {
   REQUESTED: 0,
@@ -57,6 +71,22 @@ const URGENCY_SORT_PRIORITY: Record<string, number> = {
   LOW: 3
 };
 
+const TIMELINE_FILTERS: TimelineFilter[] = [
+  "ALL",
+  "ASSIGNMENT",
+  "LIFECYCLE",
+  "MESSAGING",
+  "SYSTEM"
+];
+
+const TIMELINE_FILTER_LABELS: Record<TimelineFilter, string> = {
+  ALL: "All",
+  ASSIGNMENT: "Assignment",
+  LIFECYCLE: "Lifecycle",
+  MESSAGING: "Messaging",
+  SYSTEM: "System"
+};
+
 const normalizeToken = (value: string): string => value.trim().toUpperCase().replace(/\s+/g, "_");
 
 const formatToken = (value: string): string =>
@@ -64,6 +94,52 @@ const formatToken = (value: string): string =>
     .split("_")
     .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1).toLowerCase())
     .join(" ");
+
+const getTimelineCategory = (eventType: string): Exclude<TimelineFilter, "ALL"> => {
+  const normalized = normalizeToken(eventType);
+  if (normalized.includes("ASSIGN") || normalized.includes("CANDIDATE") || normalized.includes("OVERRIDE")) {
+    return "ASSIGNMENT";
+  }
+  if (
+    normalized.includes("STATUS") ||
+    normalized.includes("REQUESTED") ||
+    normalized.includes("IN_PROGRESS") ||
+    normalized.includes("COMPLETED") ||
+    normalized.includes("CANCELLED")
+  ) {
+    return "LIFECYCLE";
+  }
+  if (normalized.includes("MESSAGE") || normalized.includes("THREAD")) {
+    return "MESSAGING";
+  }
+  return "SYSTEM";
+};
+
+const extractPayloadString = (payload: Record<string, unknown>, keys: string[]): string | null => {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+};
+
+const getEventWorkerId = (event: TimelineEvent): string | null =>
+  extractPayloadString(event.payload, ["workerId", "assignedWorkerId", "overrideWorkerId", "selectedWorkerId"]);
+
+const getEventReason = (event: TimelineEvent): string | null =>
+  extractPayloadString(event.payload, ["reason", "overrideReason", "override_reason", "dispatchNote"]);
+
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  return ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName);
+};
 
 function App() {
   const [identifier, setIdentifier] = useState("dispatch@laoworks.local");
@@ -83,13 +159,76 @@ function App() {
   const [skillFilter, setSkillFilter] = useState("ALL");
   const [personalityFilter, setPersonalityFilter] = useState("ALL");
   const [queueSort, setQueueSort] = useState<QueueSort>("NEWEST");
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>("ALL");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const overrideReasonInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLInputElement>(null);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? null,
     [jobs, selectedJobId]
   );
+
+  const timelineCounts = useMemo(() => {
+    const counts: Record<TimelineFilter, number> = {
+      ALL: timeline.length,
+      ASSIGNMENT: 0,
+      LIFECYCLE: 0,
+      MESSAGING: 0,
+      SYSTEM: 0
+    };
+    for (const event of timeline) {
+      const category = getTimelineCategory(event.eventType);
+      counts[category] += 1;
+    }
+    return counts;
+  }, [timeline]);
+
+  const visibleTimeline = useMemo(() => {
+    if (timelineFilter === "ALL") {
+      return timeline;
+    }
+    return timeline.filter((event) => getTimelineCategory(event.eventType) === timelineFilter);
+  }, [timeline, timelineFilter]);
+
+  const groupedMessages = useMemo(() => {
+    const groups: MessageDayGroup[] = [];
+
+    for (const message of messages) {
+      const createdAt = new Date(message.createdAt);
+      const dayKey = createdAt.toISOString().slice(0, 10);
+      const dayLabel = createdAt.toLocaleDateString();
+      let dayGroup = groups[groups.length - 1];
+      if (!dayGroup || dayGroup.dayKey !== dayKey) {
+        dayGroup = { dayKey, dayLabel, threads: [] };
+        groups.push(dayGroup);
+      }
+
+      const thread = dayGroup.threads[dayGroup.threads.length - 1];
+      const previousEndedAt = thread ? Date.parse(thread.endedAt) : 0;
+      const currentCreatedAt = Date.parse(message.createdAt);
+      const shouldMerge =
+        Boolean(thread) &&
+        thread.senderUserId === message.senderUserId &&
+        currentCreatedAt - previousEndedAt <= 5 * 60 * 1000;
+
+      if (thread && shouldMerge) {
+        thread.items.push(message);
+        thread.endedAt = message.createdAt;
+      } else {
+        dayGroup.threads.push({
+          senderUserId: message.senderUserId,
+          startedAt: message.createdAt,
+          endedAt: message.createdAt,
+          items: [message]
+        });
+      }
+    }
+
+    return groups;
+  }, [messages]);
 
   const skillOptions = useMemo(() => {
     const dynamicSkills = jobs.flatMap((job) => job.requiredSkills.map(normalizeToken));
@@ -222,6 +361,19 @@ function App() {
     return () => window.clearInterval(timer);
   }, [loadJobPanels, loadQueue, selectedJobId, session]);
 
+  const selectJobByOffset = useCallback(
+    (offset: number) => {
+      if (!filteredJobs.length) {
+        return;
+      }
+      const currentIndex = filteredJobs.findIndex((job) => job.id === selectedJobId);
+      const startIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = (startIndex + offset + filteredJobs.length) % filteredJobs.length;
+      setSelectedJobId(filteredJobs[nextIndex].id);
+    },
+    [filteredJobs, selectedJobId]
+  );
+
   const onLogin = async (event: FormEvent) => {
     event.preventDefault();
     try {
@@ -237,7 +389,7 @@ function App() {
     await Promise.all([loadQueue(), loadJobPanels(selectedJobId)]);
   };
 
-  const onRecompute = async () => {
+  const onRecompute = useCallback(async () => {
     if (!session || !selectedJobId) return;
     try {
       const payload = await recomputeCandidates(session.accessToken, selectedJobId, 10);
@@ -249,9 +401,9 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Recompute failed");
     }
-  };
+  }, [selectedJobId, session]);
 
-  const onAssign = async () => {
+  const onAssign = useCallback(async () => {
     if (!session || !selectedJobId || !selectedWorkerId) return;
     try {
       await assignWorker(session.accessToken, selectedJobId, selectedWorkerId);
@@ -260,9 +412,9 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Assign failed");
     }
-  };
+  }, [selectedJobId, selectedWorkerId, session]);
 
-  const onOverride = async () => {
+  const onOverride = useCallback(async () => {
     if (!session || !selectedJobId || !selectedWorkerId || !overrideReason.trim()) return;
     try {
       await overrideWorker(
@@ -277,9 +429,9 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Override failed");
     }
-  };
+  }, [overrideReason, selectedJobId, selectedWorkerId, session]);
 
-  const onSendMessage = async () => {
+  const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
     try {
       await sendMessage(session.accessToken, selectedJobId, messageDraft.trim());
@@ -288,6 +440,112 @@ function App() {
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send message failed");
+    }
+  }, [loadJobPanels, messageDraft, selectedJobId, session]);
+
+  const onUseTimelineReason = useCallback((reason: string) => {
+    setOverrideReason(reason);
+    overrideReasonInputRef.current?.focus();
+  }, []);
+
+  const onQuoteTimelineEvent = useCallback((event: TimelineEvent) => {
+    const payloadSummary = JSON.stringify(event.payload);
+    const line = `[${event.eventType}] ${payloadSummary.length > 150 ? `${payloadSummary.slice(0, 147)}...` : payloadSummary}`;
+    setMessageDraft((current) => (current ? `${current}\n${line}` : line));
+    messageInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+
+      if (event.key === "Escape" && showShortcutHelp) {
+        event.preventDefault();
+        setShowShortcutHelp(false);
+        return;
+      }
+
+      if (isEditableTarget(event.target)) {
+        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+          event.preventDefault();
+          void onSendMessage();
+        }
+        return;
+      }
+
+      if (event.key === "?") {
+        event.preventDefault();
+        setShowShortcutHelp((value) => !value);
+        return;
+      }
+
+      if (key === "j" || key === "arrowdown") {
+        event.preventDefault();
+        selectJobByOffset(1);
+        return;
+      }
+      if (key === "k" || key === "arrowup") {
+        event.preventDefault();
+        selectJobByOffset(-1);
+        return;
+      }
+      if (key === "r") {
+        event.preventDefault();
+        void onRecompute();
+        return;
+      }
+      if (key === "a") {
+        event.preventDefault();
+        void onAssign();
+        return;
+      }
+      if (key === "o") {
+        event.preventDefault();
+        overrideReasonInputRef.current?.focus();
+        return;
+      }
+      if (key === "m") {
+        event.preventDefault();
+        messageInputRef.current?.focus();
+        return;
+      }
+      if (key === "1") {
+        event.preventDefault();
+        setTimelineFilter("ALL");
+        return;
+      }
+      if (key === "2") {
+        event.preventDefault();
+        setTimelineFilter("ASSIGNMENT");
+        return;
+      }
+      if (key === "3") {
+        event.preventDefault();
+        setTimelineFilter("LIFECYCLE");
+        return;
+      }
+      if (key === "4") {
+        event.preventDefault();
+        setTimelineFilter("MESSAGING");
+        return;
+      }
+      if (key === "5") {
+        event.preventDefault();
+        setTimelineFilter("SYSTEM");
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onAssign, onRecompute, onSendMessage, selectJobByOffset, session, showShortcutHelp]);
+
+  const onMessageInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      void onSendMessage();
     }
   };
 
@@ -328,6 +586,12 @@ function App() {
               ? `Last refresh: ${new Date(lastRefreshAt).toLocaleTimeString()}`
               : "Waiting for first refresh"}
           </small>
+          <button
+            className={showShortcutHelp ? "secondary active" : "secondary"}
+            onClick={() => setShowShortcutHelp((value) => !value)}
+          >
+            Shortcuts (?)
+          </button>
           <button onClick={() => void refreshPanelsAfterMutation()} disabled={isRefreshing}>
             {isRefreshing ? "Refreshing..." : "Refresh Queue"}
           </button>
@@ -335,6 +599,21 @@ function App() {
       </header>
 
       {error && <p className="error">{error}</p>}
+      {showShortcutHelp && (
+        <section className="shortcut-panel" aria-label="Keyboard shortcuts">
+          <h2>Keyboard Shortcuts</h2>
+          <div className="shortcut-grid">
+            <p><kbd>j</kbd> or <kbd>↓</kbd> Next job</p>
+            <p><kbd>k</kbd> or <kbd>↑</kbd> Previous job</p>
+            <p><kbd>r</kbd> Recompute candidates</p>
+            <p><kbd>a</kbd> Assign selected candidate</p>
+            <p><kbd>o</kbd> Focus override reason</p>
+            <p><kbd>m</kbd> Focus message draft</p>
+            <p><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> Send message</p>
+            <p><kbd>1-5</kbd> Switch timeline chips</p>
+          </div>
+        </section>
+      )}
 
       <section className="grid-layout">
         <aside className="panel queue">
@@ -440,12 +719,12 @@ function App() {
           <h2>Job Detail</h2>
           {selectedJob ? (
             <>
-              <p><strong>ID:</strong> {selectedJob.id}</p>
+              <p data-testid="selected-job-id"><strong>ID:</strong> {selectedJob.id}</p>
               <p><strong>Status:</strong> {selectedJob.status}</p>
               <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
               <p><strong>Description:</strong> {selectedJob.description}</p>
               <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
-              <p>
+              <p data-testid="selected-worker-id">
                 <strong>Selected Worker:</strong> {selectedWorkerId ?? "Select from candidates"}
               </p>
 
@@ -455,6 +734,7 @@ function App() {
                   Assign Selected Candidate
                 </button>
                 <input
+                  ref={overrideReasonInputRef}
                   placeholder="Override reason"
                   value={overrideReason}
                   onChange={(event) => setOverrideReason(event.target.value)}
@@ -507,31 +787,79 @@ function App() {
 
         <section className="panel timeline">
           <h2>Timeline</h2>
-          <ul>
-            {timeline.map((event) => (
-              <li key={event.id}>
-                <strong>{event.eventType}</strong>
-                <span>{new Date(event.createdAt).toLocaleString()}</span>
-                <pre>{JSON.stringify(event.payload, null, 2)}</pre>
-              </li>
+          <div className="timeline-chips" role="group" aria-label="Timeline filters">
+            {TIMELINE_FILTERS.map((filter) => (
+              <button
+                key={filter}
+                className={timelineFilter === filter ? "chip active" : "chip"}
+                onClick={() => setTimelineFilter(filter)}
+              >
+                {TIMELINE_FILTER_LABELS[filter]} ({timelineCounts[filter]})
+              </button>
             ))}
+          </div>
+          <ul className="timeline-list">
+            {visibleTimeline.map((event) => {
+              const eventCategory = getTimelineCategory(event.eventType);
+              const workerId = getEventWorkerId(event);
+              const reason = getEventReason(event);
+              return (
+                <li key={event.id} className="timeline-item">
+                  <div className="timeline-item-head">
+                    <strong>{event.eventType}</strong>
+                    <span className="timeline-tag">{TIMELINE_FILTER_LABELS[eventCategory]}</span>
+                    <span>{new Date(event.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div className="timeline-inline-actions">
+                    {workerId && (
+                      <button className="chip secondary" onClick={() => setSelectedWorkerId(workerId)}>
+                        Select {workerId}
+                      </button>
+                    )}
+                    {reason && (
+                      <button className="chip secondary" onClick={() => onUseTimelineReason(reason)}>
+                        Use reason
+                      </button>
+                    )}
+                    <button className="chip secondary" onClick={() => onQuoteTimelineEvent(event)}>
+                      Quote in message
+                    </button>
+                  </div>
+                  <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                </li>
+              );
+            })}
           </ul>
 
           <h2>Messaging {selectedJobId ? `· ${selectedJobId}` : ""}</h2>
-          <div className="messages">
-            {messages.map((message) => (
-              <article key={message.id}>
-                <header>
-                  {message.senderUserId} · {new Date(message.createdAt).toLocaleString()}
-                </header>
-                <p>{message.body}</p>
-              </article>
+          <div className="messages grouped">
+            {groupedMessages.map((dayGroup) => (
+              <section key={dayGroup.dayKey} className="message-day-group">
+                <h3>{dayGroup.dayLabel}</h3>
+                {dayGroup.threads.map((thread, index) => (
+                  <article
+                    key={`${dayGroup.dayKey}-${thread.senderUserId}-${thread.startedAt}-${index}`}
+                    className="message-thread"
+                  >
+                    <header>
+                      {thread.senderUserId} · {new Date(thread.startedAt).toLocaleTimeString()}
+                    </header>
+                    <div className="message-thread-lines">
+                      {thread.items.map((message) => (
+                        <p key={message.id}>{message.body}</p>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </section>
             ))}
           </div>
           <div className="compose">
             <input
+              ref={messageInputRef}
               value={messageDraft}
               onChange={(event) => setMessageDraft(event.target.value)}
+              onKeyDown={onMessageInputKeyDown}
               placeholder="Send a message to job thread"
               disabled={!selectedJobId}
             />

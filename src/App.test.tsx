@@ -55,6 +55,25 @@ const timelineFixture: TimelineEvent[] = [
     actorUserId: "client-1",
     payload: {},
     createdAt: "2026-03-04T10:10:00.000Z"
+  },
+  {
+    id: "t-2",
+    eventType: "JOB_ASSIGNED",
+    actorUserId: "dispatch-1",
+    payload: {
+      workerId: "worker-2",
+      reason: "Client requested senior tech"
+    },
+    createdAt: "2026-03-04T10:15:00.000Z"
+  },
+  {
+    id: "t-3",
+    eventType: "MESSAGE_SENT",
+    actorUserId: "dispatch-1",
+    payload: {
+      body: "Technician en route"
+    },
+    createdAt: "2026-03-04T10:18:00.000Z"
   }
 ];
 
@@ -66,6 +85,22 @@ const baseMessagesFixture: Message[] = [
     body: "Please prioritize this.",
     attachmentObjectKey: null,
     createdAt: "2026-03-04T10:12:00.000Z"
+  },
+  {
+    id: "m-2",
+    threadId: "thread-1",
+    senderUserId: "client-1",
+    body: "Lobby access is open.",
+    attachmentObjectKey: null,
+    createdAt: "2026-03-04T10:14:00.000Z"
+  },
+  {
+    id: "m-3",
+    threadId: "thread-1",
+    senderUserId: "dispatch-1",
+    body: "Acknowledged, assigning now.",
+    attachmentObjectKey: null,
+    createdAt: "2026-03-04T10:20:00.000Z"
   }
 ];
 
@@ -191,5 +226,58 @@ describe("Dispatch Console", () => {
     await user.selectOptions(screen.getByLabelText("Skill filter"), "HVAC");
     expect(screen.getByText("HVAC Inspection")).toBeInTheDocument();
     expect(screen.queryByText("Generator Repair")).not.toBeInTheDocument();
+  });
+
+  it("supports timeline action chips, message grouping, and keyboard shortcuts", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
+    await waitFor(() => expect(mockedApi.getQueue).toHaveBeenCalledTimes(1));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-job-id")).toHaveTextContent("job-1")
+    );
+
+    await user.keyboard("j");
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-job-id")).toHaveTextContent("job-2")
+    );
+
+    await user.click(screen.getByRole("button", { name: /Assignment/i }));
+    expect(screen.getByText("JOB_ASSIGNED")).toBeInTheDocument();
+    expect(screen.queryByText("JOB_CREATED")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Use reason" }));
+    expect(screen.getByPlaceholderText("Override reason")).toHaveValue("Client requested senior tech");
+
+    await user.click(screen.getByRole("button", { name: "Select worker-2" }));
+    expect(screen.getByTestId("selected-worker-id")).toHaveTextContent("worker-2");
+
+    await user.click(screen.getByRole("button", { name: "Quote in message" }));
+    const quotedDraft = screen.getByPlaceholderText("Send a message to job thread") as HTMLInputElement;
+    expect(quotedDraft.value).toContain("[JOB_ASSIGNED]");
+
+    await user.click(screen.getByRole("heading", { name: "Dispatch Console" }));
+    await user.keyboard("?");
+    expect(screen.getByRole("heading", { name: "Keyboard Shortcuts" })).toBeInTheDocument();
+
+    await user.keyboard("m");
+    const messageInput = screen.getByPlaceholderText("Send a message to job thread");
+    expect(messageInput).toHaveFocus();
+
+    await user.clear(messageInput);
+    await user.type(messageInput, "Keyboard dispatch update");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() =>
+      expect(mockedApi.sendMessage).toHaveBeenCalledWith(
+        "access-token",
+        "job-2",
+        "Keyboard dispatch update"
+      )
+    );
+
+    expect(screen.getAllByText(/client-1/).length).toBe(1);
+    expect(screen.getByText("Lobby access is open.")).toBeInTheDocument();
   });
 });

@@ -116,6 +116,41 @@ button.secondary.active {
   gap: 0.75rem;
 }
 
+.shortcut-panel {
+  backdrop-filter: blur(10px);
+  background: rgba(7, 15, 26, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 0.9rem;
+  padding: 0.8rem 1rem;
+}
+
+.shortcut-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.45rem 1rem;
+}
+
+.shortcut-grid p {
+  margin: 0;
+  color: var(--muted);
+}
+
+kbd {
+  font-family: "IBM Plex Mono", monospace;
+  background: rgba(24, 48, 71, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.1rem 0.35rem;
+  font-size: 0.8rem;
+}
+
 .grid-layout {
   display: grid;
   grid-template-columns: 300px 1fr 1fr;
@@ -202,6 +237,111 @@ tr.candidate-selected {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0.5rem;
+}
+
+.timeline-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.chip {
+  border: 1px solid var(--line);
+  background: rgba(24, 48, 71, 0.72);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-weight: 600;
+}
+
+.chip.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.timeline-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.timeline-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(6, 14, 26, 0.66);
+  padding: 0.6rem;
+}
+
+.timeline-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.timeline-tag {
+  border: 1px solid rgba(123, 224, 255, 0.4);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+.timeline-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+}
+
+.timeline-inline-actions .chip {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.messages.grouped {
+  max-height: 280px;
+}
+
+.message-day-group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.message-day-group h3 {
+  margin: 0.1rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.message-thread {
+  background: rgba(6, 14, 26, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.message-thread header {
+  color: #c5e9ff;
+  font-size: 0.82rem;
+}
+
+.message-thread-lines {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.message-thread-lines p {
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(147, 206, 255, 0.15);
+  background: rgba(17, 35, 56, 0.72);
 }
 
 .compose {
