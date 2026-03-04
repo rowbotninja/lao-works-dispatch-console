@@ -140,9 +140,12 @@ describe("Dispatch Console", () => {
       expect(mockedApi.getCandidates).toHaveBeenLastCalledWith("access-token", "job-2")
     );
 
-    const candidateRow = screen.getByText("worker-2").closest("tr");
+    const workerCell = screen
+      .getAllByText("worker-2")
+      .find((element) => element.tagName.toLowerCase() === "td");
+    const candidateRow = workerCell?.closest("tr");
     expect(candidateRow).not.toBeNull();
-    await user.click(within(candidateRow!).getByRole("button", { name: "Select" }));
+    await user.click(within(candidateRow!).getByRole("button", { name: /Select|Selected/ }));
     await user.click(screen.getByRole("button", { name: "Assign Selected Candidate" }));
 
     await waitFor(() =>
@@ -181,8 +184,9 @@ describe("Dispatch Console", () => {
 
     await user.selectOptions(screen.getByLabelText("Status filter"), "ASSIGNED");
     await waitFor(() => expect(screen.queryByText("Generator Repair")).not.toBeInTheDocument());
-    expect(screen.getByText("HVAC Inspection")).toBeInTheDocument();
-    expect(screen.getByText("job-2")).toBeInTheDocument();
+    const jobCard = screen.getByRole("button", { name: /HVAC Inspection/i });
+    expect(jobCard).toBeInTheDocument();
+    expect(jobCard).toHaveTextContent("job-2");
 
     await user.selectOptions(screen.getByLabelText("Skill filter"), "HVAC");
     expect(screen.getByText("HVAC Inspection")).toBeInTheDocument();
