@@ -8,6 +8,7 @@ Dispatcher React + TypeScript app (Vite) implementing MVP flows:
 - Candidate score breakdown
 - Candidate-driven assign/override
 - Timeline filters + inline action chips
+- Structured timeline and candidate summaries (raw JSON in expandable details)
 - Messaging panel grouped by day/sender threads
 - Keyboard-first dispatcher shortcuts
 - Auto-refresh polling

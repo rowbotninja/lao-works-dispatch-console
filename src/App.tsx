@@ -30,6 +30,19 @@ type MessageDayGroup = {
   threads: MessageThreadGroup[];
 };
 
+type CandidateFactor = {
+  label: string;
+  score: number | null;
+  weight: number | null;
+  weighted: number | null;
+  fallback: string | null;
+};
+
+type PayloadFact = {
+  label: string;
+  value: string;
+};
+
 const JOB_STATUSES = ["REQUESTED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 type StatusFilter = "ALL" | (typeof JOB_STATUSES)[number];
 
@@ -139,6 +152,122 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
     return true;
   }
   return ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName);
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const toNumberOrNull = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return null;
+};
+
+const formatScalar = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toFixed(2) : String(value);
+  }
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => formatScalar(item)).join(", ");
+  }
+  return JSON.stringify(value);
+};
+
+const formatFactorLabel = (name: string): string =>
+  name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+
+const getCandidateFactors = (scoreBreakdown: Record<string, unknown>): CandidateFactor[] => {
+  return Object.entries(scoreBreakdown)
+    .filter(([name]) => name !== "finalScore")
+    .map(([name, value]) => {
+      if (isRecord(value)) {
+        return {
+          label: formatFactorLabel(name),
+          score: toNumberOrNull(value.score),
+          weight: toNumberOrNull(value.weight),
+          weighted: toNumberOrNull(value.weighted),
+          fallback: null
+        };
+      }
+      if (typeof value === "number") {
+        return {
+          label: formatFactorLabel(name),
+          score: Number.isFinite(value) ? value : null,
+          weight: null,
+          weighted: null,
+          fallback: null
+        };
+      }
+      return {
+        label: formatFactorLabel(name),
+        score: null,
+        weight: null,
+        weighted: null,
+        fallback: formatScalar(value)
+      };
+    });
+};
+
+const getCandidateFinalScore = (
+  scoreBreakdown: Record<string, unknown>,
+  fallback: number
+): number => {
+  const breakdownFinal = toNumberOrNull(scoreBreakdown.finalScore);
+  if (breakdownFinal !== null) {
+    return breakdownFinal;
+  }
+  return fallback;
+};
+
+const preferredPayloadKeys = [
+  "workerId",
+  "assignmentType",
+  "reason",
+  "fromStatus",
+  "toStatus",
+  "note",
+  "body",
+  "objectKey",
+  "contentType"
+];
+
+const toFactLabel = (key: string): string =>
+  key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+
+const getPayloadFacts = (payload: Record<string, unknown>): PayloadFact[] => {
+  const facts: PayloadFact[] = [];
+  for (const key of preferredPayloadKeys) {
+    if (!(key in payload)) {
+      continue;
+    }
+    facts.push({ label: toFactLabel(key), value: formatScalar(payload[key]) });
+  }
+
+  if (facts.length > 0) {
+    return facts.slice(0, 5);
+  }
+
+  return Object.entries(payload)
+    .slice(0, 5)
+    .map(([key, value]) => ({ label: toFactLabel(key), value: formatScalar(value) }));
 };
 
 function App() {
@@ -703,11 +832,15 @@ function App() {
                   className={job.id === selectedJobId ? "job active" : "job"}
                   onClick={() => setSelectedJobId(job.id)}
                 >
-                  <strong>{job.jobType}</strong>
-                  <span>{job.id}</span>
-                  <span>
-                    {job.status} · {job.urgency}
-                  </span>
+                  <div className="job-head">
+                    <strong>{job.jobType}</strong>
+                    <span className="job-id">{job.id}</span>
+                  </div>
+                  <div className="job-meta">
+                    <span className="badge">{job.status}</span>
+                    <span className="badge">{job.urgency}</span>
+                    <span className="badge">{job.requiredSkills.length} skills</span>
+                  </div>
                   <small>{job.description}</small>
                 </button>
               </li>
@@ -719,14 +852,23 @@ function App() {
           <h2>Job Detail</h2>
           {selectedJob ? (
             <>
-              <p data-testid="selected-job-id"><strong>ID:</strong> {selectedJob.id}</p>
-              <p><strong>Status:</strong> {selectedJob.status}</p>
-              <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
-              <p><strong>Description:</strong> {selectedJob.description}</p>
-              <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
-              <p data-testid="selected-worker-id">
-                <strong>Selected Worker:</strong> {selectedWorkerId ?? "Select from candidates"}
-              </p>
+              <div className="job-summary">
+                <p data-testid="selected-job-id"><strong>ID:</strong> {selectedJob.id}</p>
+                <p><strong>Status:</strong> {selectedJob.status}</p>
+                <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
+                <p>
+                  <strong>Window:</strong>{" "}
+                  {selectedJob.scheduleWindowStart && selectedJob.scheduleWindowEnd
+                    ? `${new Date(selectedJob.scheduleWindowStart).toLocaleString()} - ${new Date(selectedJob.scheduleWindowEnd).toLocaleString()}`
+                    : "Not scheduled"}
+                </p>
+                <p><strong>Description:</strong> {selectedJob.description}</p>
+                <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
+                <p><strong>Personality:</strong> {selectedJob.personalityPreferences.join(", ") || "None"}</p>
+                <p data-testid="selected-worker-id">
+                  <strong>Selected Worker:</strong> {selectedWorkerId ?? "Select from candidates"}
+                </p>
+              </div>
 
               <div className="actions">
                 <button onClick={onRecompute}>Recompute Candidates</button>
@@ -773,7 +915,24 @@ function App() {
                         </button>
                       </td>
                       <td>
-                        <pre>{JSON.stringify(candidate.scoreBreakdown, null, 2)}</pre>
+                        <div className="breakdown-stack">
+                          <p className="candidate-final-score">
+                            Final: {getCandidateFinalScore(candidate.scoreBreakdown, candidate.score).toFixed(2)}
+                          </p>
+                          {getCandidateFactors(candidate.scoreBreakdown).map((factor) => (
+                            <div key={factor.label} className="factor-row">
+                              <span className="factor-name">{factor.label}</span>
+                              {factor.score !== null && <span>S {factor.score.toFixed(2)}</span>}
+                              {factor.weight !== null && <span>W {factor.weight.toFixed(2)}</span>}
+                              {factor.weighted !== null && <span>WS {factor.weighted.toFixed(2)}</span>}
+                              {factor.fallback && <span>{factor.fallback}</span>}
+                            </div>
+                          ))}
+                          <details>
+                            <summary>Raw</summary>
+                            <pre>{JSON.stringify(candidate.scoreBreakdown, null, 2)}</pre>
+                          </details>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -810,6 +969,13 @@ function App() {
                     <span className="timeline-tag">{TIMELINE_FILTER_LABELS[eventCategory]}</span>
                     <span>{new Date(event.createdAt).toLocaleString()}</span>
                   </div>
+                  <div className="payload-facts">
+                    {getPayloadFacts(event.payload).map((fact) => (
+                      <span key={`${event.id}-${fact.label}`} className="payload-fact">
+                        <strong>{fact.label}:</strong> {fact.value}
+                      </span>
+                    ))}
+                  </div>
                   <div className="timeline-inline-actions">
                     {workerId && (
                       <button className="chip secondary" onClick={() => setSelectedWorkerId(workerId)}>
@@ -825,7 +991,10 @@ function App() {
                       Quote in message
                     </button>
                   </div>
-                  <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                  <details>
+                    <summary>Raw payload</summary>
+                    <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+                  </details>
                 </li>
               );
             })}
