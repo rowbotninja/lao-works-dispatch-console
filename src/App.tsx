@@ -341,6 +341,13 @@ const getDefaultDispatchActionPayload = (
           description: "Dispatch opened dispute for manual review."
         }
       };
+    case "OFFER_DISPUTE_RESOLUTION":
+      return {
+        resolution: {
+          type: "partial_refund",
+          summary: "Offer partial refund and close the dispute."
+        }
+      };
     case "CONFIRM_PAYMENT":
       return {
         paymentConfirmation: {
@@ -360,6 +367,15 @@ const getDefaultDispatchActionPayload = (
     case "RECORD_NO_SHOW":
       return { noShowParty: "worker" };
     case "APPROVE_DISPUTE":
+      return {
+        resolution: {
+          type: "partial_refund",
+          summary: "Offer partial refund and close the dispute."
+        },
+        dispute: {
+          decisionReason: "Reviewed by dispatch"
+        }
+      };
     case "REJECT_DISPUTE":
       return {
         dispute: {
@@ -735,6 +751,10 @@ function App() {
   const [paymentConfirmAmount, setPaymentConfirmAmount] = useState("0");
   const [paymentRejectReasonCode, setPaymentRejectReasonCode] = useState("amount_mismatch");
   const [disputeDecisionReason, setDisputeDecisionReason] = useState("Reviewed by dispatch");
+  const [disputeResolutionType, setDisputeResolutionType] = useState("partial_refund");
+  const [disputeResolutionSummary, setDisputeResolutionSummary] = useState(
+    "Offer partial refund and close the dispute."
+  );
   const [requestMoreInfoTargetRole, setRequestMoreInfoTargetRole] = useState("client");
   const [requestMoreInfoMessage, setRequestMoreInfoMessage] = useState("Please provide additional dispute details.");
   const overrideReasonInputRef = useRef<HTMLInputElement>(null);
@@ -781,6 +801,7 @@ function App() {
             action !== "CONFIRM_PAYMENT" &&
             action !== "REJECT_PAYMENT_PROOF" &&
             action !== "BEGIN_DISPUTE_REVIEW" &&
+            action !== "OFFER_DISPUTE_RESOLUTION" &&
             action !== "APPROVE_DISPUTE" &&
             action !== "REJECT_DISPUTE" &&
             action !== "REQUEST_MORE_INFO"
@@ -822,7 +843,16 @@ function App() {
   const latestWorkSubmissionAction = useMemo(() => findLatestWorkflowAction(timeline, ["SUBMIT_WORK"]), [timeline]);
   const latestPaymentProofAction = useMemo(() => findLatestWorkflowAction(timeline, ["SUBMIT_PAYMENT_PROOF"]), [timeline]);
   const latestDisputeAction = useMemo(
-    () => findLatestWorkflowAction(timeline, ["OPEN_DISPUTE", "OPEN_DISPUTE_DISPATCH", "APPROVE_DISPUTE", "REJECT_DISPUTE"]),
+    () =>
+      findLatestWorkflowAction(timeline, [
+        "OPEN_DISPUTE",
+        "OPEN_DISPUTE_DISPATCH",
+        "OFFER_DISPUTE_RESOLUTION",
+        "APPROVE_DISPUTE",
+        "ACCEPT_DISPUTE_RESOLUTION",
+        "REJECT_DISPUTE_RESOLUTION",
+        "REJECT_DISPUTE"
+      ]),
     [timeline]
   );
   const latestRequestMoreInfoAction = useMemo(() => findLatestWorkflowAction(timeline, ["REQUEST_MORE_INFO"]), [timeline]);
@@ -854,6 +884,13 @@ function App() {
       return null;
     }
     return payload.dispute;
+  }, [latestDisputeAction]);
+  const latestResolutionOfferPayload = useMemo(() => {
+    const payload = latestDisputeAction?.actionPayload;
+    if (!payload || !isRecord(payload.resolution)) {
+      return null;
+    }
+    return payload.resolution;
   }, [latestDisputeAction]);
   const latestRequestInfoPayload = useMemo(() => {
     const payload = latestRequestMoreInfoAction?.actionPayload;
@@ -1429,16 +1466,30 @@ function App() {
     await onRunJobAction("BEGIN_DISPUTE_REVIEW", {});
   }, [onRunJobAction, selectedJobActionSet]);
 
-  const onApproveDispute = useCallback(async () => {
-    if (!selectedJobActionSet.has("APPROVE_DISPUTE")) {
+  const onOfferDisputeResolution = useCallback(async () => {
+    const action = selectedJobActionSet.has("OFFER_DISPUTE_RESOLUTION")
+      ? "OFFER_DISPUTE_RESOLUTION"
+      : selectedJobActionSet.has("APPROVE_DISPUTE")
+        ? "APPROVE_DISPUTE"
+        : null;
+    if (!action) {
       return;
     }
-    await onRunJobAction("APPROVE_DISPUTE", {
+    const summary = disputeResolutionSummary.trim();
+    if (!summary) {
+      setError("Resolution summary is required.");
+      return;
+    }
+    await onRunJobAction(action, {
+      resolution: {
+        type: disputeResolutionType,
+        summary
+      },
       dispute: {
-        decisionReason: disputeDecisionReason.trim() || "Approved after dispatch review"
+        decisionReason: disputeDecisionReason.trim() || "Resolution proposed by dispatch"
       }
     });
-  }, [disputeDecisionReason, onRunJobAction, selectedJobActionSet]);
+  }, [disputeDecisionReason, disputeResolutionSummary, disputeResolutionType, onRunJobAction, selectedJobActionSet]);
 
   const onRejectDispute = useCallback(async () => {
     if (!selectedJobActionSet.has("REJECT_DISPUTE")) {
@@ -2108,9 +2159,20 @@ function App() {
                   ) : (
                     <p>No dispute payload yet.</p>
                   )}
+                  {latestResolutionOfferPayload && (
+                    <div className="payload-facts">
+                      <span className="payload-fact">
+                        <strong>Resolution Type:</strong> {formatScalar(latestResolutionOfferPayload.type)}
+                      </span>
+                      <span className="payload-fact">
+                        <strong>Resolution Summary:</strong> {formatScalar(latestResolutionOfferPayload.summary)}
+                      </span>
+                    </div>
+                  )}
 
                   {(selectedJobActionSet.has("BEGIN_DISPUTE_REVIEW") ||
                     selectedJobActionSet.has("REQUEST_MORE_INFO") ||
+                    selectedJobActionSet.has("OFFER_DISPUTE_RESOLUTION") ||
                     selectedJobActionSet.has("APPROVE_DISPUTE") ||
                     selectedJobActionSet.has("REJECT_DISPUTE")) && (
                     <div className="workflow-action-stack">
@@ -2141,22 +2203,42 @@ function App() {
                           </button>
                         </div>
                       )}
-                      {(selectedJobActionSet.has("APPROVE_DISPUTE") || selectedJobActionSet.has("REJECT_DISPUTE")) && (
+                      {(selectedJobActionSet.has("OFFER_DISPUTE_RESOLUTION") || selectedJobActionSet.has("APPROVE_DISPUTE")) && (
+                        <div className="workflow-action-inline">
+                          <label>
+                            Resolution type
+                            <select
+                              value={disputeResolutionType}
+                              onChange={(event) => setDisputeResolutionType(event.target.value)}
+                            >
+                              <option value="partial_refund">Partial refund</option>
+                              <option value="full_refund">Full refund</option>
+                              <option value="remediation">Remediation visit</option>
+                              <option value="credit">Service credit</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </label>
+                          <label>
+                            Resolution summary
+                            <input
+                              value={disputeResolutionSummary}
+                              onChange={(event) => setDisputeResolutionSummary(event.target.value)}
+                            />
+                          </label>
+                          <button className="secondary" onClick={() => void onOfferDisputeResolution()}>
+                            Offer Resolution
+                          </button>
+                        </div>
+                      )}
+                      {selectedJobActionSet.has("REJECT_DISPUTE") && (
                         <div className="workflow-action-inline">
                           <label>
                             Decision reason
                             <input value={disputeDecisionReason} onChange={(event) => setDisputeDecisionReason(event.target.value)} />
                           </label>
-                          {selectedJobActionSet.has("APPROVE_DISPUTE") && (
-                            <button className="secondary" onClick={() => void onApproveDispute()}>
-                              Approve Dispute
-                            </button>
-                          )}
-                          {selectedJobActionSet.has("REJECT_DISPUTE") && (
-                            <button className="secondary" onClick={() => void onRejectDispute()}>
-                              Reject Dispute
-                            </button>
-                          )}
+                          <button className="secondary" onClick={() => void onRejectDispute()}>
+                            Reject Dispute
+                          </button>
                         </div>
                       )}
                     </div>
