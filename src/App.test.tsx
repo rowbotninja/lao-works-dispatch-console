@@ -8,6 +8,8 @@ import { Candidate, Job, Message, TimelineEvent } from "./types";
 vi.mock("./api", () => ({
   login: vi.fn(),
   getQueue: vi.fn(),
+  getMapOverview: vi.fn(),
+  getDispatchCalendar: vi.fn(),
   getCandidates: vi.fn(),
   getTimeline: vi.fn(),
   getMessages: vi.fn(),
@@ -141,6 +143,20 @@ describe("Dispatch Console", () => {
       expiresInSeconds: 3600
     });
     mockedApi.getQueue.mockResolvedValue({ items: jobsFixture });
+    mockedApi.getMapOverview.mockResolvedValue({
+      generatedAt: "2026-03-04T10:00:00.000Z",
+      jobs: [],
+      workers: [],
+      routeSuggestions: []
+    });
+    mockedApi.getDispatchCalendar.mockResolvedValue({
+      range: {
+        from: "2026-03-04T00:00:00.000Z",
+        to: "2026-03-11T00:00:00.000Z"
+      },
+      workers: [],
+      unassignedJobs: []
+    });
     mockedApi.getCandidates.mockImplementation(async (_token, jobId) => ({
       candidates: candidatesByJobId[jobId] ?? []
     }));

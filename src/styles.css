@@ -442,8 +442,125 @@ summary {
   color: var(--danger);
 }
 
+.ops-grid-layout {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 0.9rem;
+}
+
+.ops-grid-layout .panel {
+  min-height: 32vh;
+}
+
+.map-legend {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 0.55rem;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-right: 0.3rem;
+}
+
+.legend-dot.job {
+  background: #ffad6f;
+}
+
+.legend-dot.worker {
+  background: #7be0ff;
+}
+
+.map-canvas {
+  position: relative;
+  height: 260px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 25% 30%, rgba(65, 194, 255, 0.2), transparent 45%),
+    radial-gradient(circle at 75% 65%, rgba(255, 173, 111, 0.16), transparent 45%),
+    rgba(6, 13, 23, 0.82);
+  margin-bottom: 0.75rem;
+}
+
+.map-point {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0;
+}
+
+.map-point.job {
+  background: #ffad6f;
+  color: #2f1100;
+}
+
+.map-point.worker {
+  background: #7be0ff;
+  color: #012536;
+}
+
+.route-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.route-list li {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem;
+  background: rgba(9, 19, 33, 0.62);
+}
+
+.linkish {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: #b9e8ff;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.schedule-workers {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.schedule-worker-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.55rem 0.65rem;
+  background: rgba(9, 19, 33, 0.68);
+}
+
+.schedule-worker-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.schedule-worker-card p {
+  margin: 0.28rem 0;
+}
+
 @media (max-width: 1080px) {
   .grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-grid-layout {
     grid-template-columns: 1fr;
   }
 

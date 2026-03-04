@@ -23,6 +23,7 @@ export type Job = {
   assignedWorkerName?: string | null;
   assignedWorkerEmail?: string | null;
   assignedWorkerDisplayName?: string | null;
+  location?: { lat: number; lon: number } | null;
   createdAt: string;
 };
 
@@ -51,4 +52,81 @@ export type Message = {
   body: string;
   attachmentObjectKey: string | null;
   createdAt: string;
+};
+
+export type DispatchMapOverview = {
+  generatedAt: string;
+  jobs: Array<{
+    id: string;
+    status: string;
+    description: string;
+    urgency: string;
+    clientDisplayName: string;
+    assignedWorkerId: string | null;
+    assignedWorkerDisplayName: string | null;
+    scheduleWindowStart: string | null;
+    scheduleWindowEnd: string | null;
+    location: { lat: number; lon: number };
+  }>;
+  workers: Array<{
+    workerId: string;
+    workerDisplayName: string;
+    tier: string;
+    reliabilityScore: number;
+    ratingAverage: number;
+    location: { lat: number; lon: number };
+  }>;
+  routeSuggestions: Array<{
+    workerId: string;
+    workerDisplayName: string;
+    from: { lat: number; lon: number };
+    toJobId: string;
+    toJobDescription: string;
+    toJobStatus: string;
+    to: { lat: number; lon: number };
+    distanceKm: number;
+    estimatedDriveMinutes: number;
+  }>;
+};
+
+export type DispatchCalendar = {
+  range: {
+    from: string;
+    to: string;
+  };
+  workers: Array<{
+    workerId: string;
+    workerDisplayName: string;
+    tier: string;
+    availability: Array<{
+      dayOfWeek: number;
+      startTime: string;
+      endTime: string;
+      timezone: string;
+    }>;
+    timeOff: Array<{
+      id: string;
+      startAt: string;
+      endAt: string;
+      reason: string | null;
+    }>;
+    scheduledJobs: Array<{
+      id: string;
+      status: string;
+      description: string;
+      urgency: string;
+      scheduleWindowStart: string | null;
+      scheduleWindowEnd: string | null;
+      location: { lat: number; lon: number } | null;
+    }>;
+  }>;
+  unassignedJobs: Array<{
+    id: string;
+    status: string;
+    description: string;
+    urgency: string;
+    scheduleWindowStart: string | null;
+    scheduleWindowEnd: string | null;
+    location: { lat: number; lon: number } | null;
+  }>;
 };

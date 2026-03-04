@@ -1,4 +1,12 @@
-import { AuthTokens, Candidate, Job, Message, TimelineEvent } from "./types";
+import {
+  AuthTokens,
+  Candidate,
+  DispatchCalendar,
+  DispatchMapOverview,
+  Job,
+  Message,
+  TimelineEvent
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/v1";
 
@@ -38,6 +46,20 @@ export const login = (identifier: string, password: string): Promise<AuthTokens>
 
 export const getQueue = (accessToken: string): Promise<{ items: Job[] }> =>
   apiRequest<{ items: Job[] }>("/dispatch/jobs/queue", { method: "GET" }, accessToken);
+
+export const getMapOverview = (accessToken: string): Promise<DispatchMapOverview> =>
+  apiRequest<DispatchMapOverview>("/dispatch/map-overview", { method: "GET" }, accessToken);
+
+export const getDispatchCalendar = (
+  accessToken: string,
+  fromIso: string,
+  toIso: string
+): Promise<DispatchCalendar> =>
+  apiRequest<DispatchCalendar>(
+    `/dispatch/calendar?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    { method: "GET" },
+    accessToken
+  );
 
 export const getCandidates = (accessToken: string, jobId: string): Promise<{ candidates: Candidate[] }> =>
   apiRequest<{ candidates: Candidate[] }>(

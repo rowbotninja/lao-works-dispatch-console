@@ -2,6 +2,8 @@ import { FormEvent, KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect,
 import {
   assignWorker,
   getCandidates,
+  getDispatchCalendar,
+  getMapOverview,
   getMessages,
   getQueue,
   getTimeline,
@@ -10,7 +12,7 @@ import {
   sendMessage,
   overrideWorker
 } from "./api";
-import { Candidate, Job, Message, TimelineEvent } from "./types";
+import { Candidate, DispatchCalendar, DispatchMapOverview, Job, Message, TimelineEvent } from "./types";
 
 type Session = {
   accessToken: string;
@@ -130,6 +132,12 @@ const formatWorkerLabel = (candidate: Candidate): string =>
   candidate.workerName?.trim() ||
   candidate.workerEmail?.trim() ||
   candidate.workerId;
+
+const formatLatLon = (lat: number, lon: number): string =>
+  `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+
+const weekdayLabel = (dayOfWeek: number): string =>
+  ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayOfWeek] ?? `Day ${dayOfWeek}`;
 
 const getTimelineCategory = (eventType: string): Exclude<TimelineFilter, "ALL"> => {
   const normalized = normalizeToken(eventType);
@@ -315,6 +323,8 @@ function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const [mapOverview, setMapOverview] = useState<DispatchMapOverview | null>(null);
+  const [calendar, setCalendar] = useState<DispatchCalendar | null>(null);
   const overrideReasonInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
 
@@ -450,6 +460,58 @@ function App() {
     return visibleJobs;
   }, [jobs, personalityFilter, queueSort, skillFilter, statusFilter, urgencyFilter]);
 
+  const mapPoints = useMemo(() => {
+    if (!mapOverview) {
+      return [] as Array<{
+        id: string;
+        kind: "JOB" | "WORKER";
+        lat: number;
+        lon: number;
+        label: string;
+        status: string;
+      }>;
+    }
+
+    const jobPoints = mapOverview.jobs.map((job) => ({
+      id: `job-${job.id}`,
+      kind: "JOB" as const,
+      lat: job.location.lat,
+      lon: job.location.lon,
+      label: `${job.description} (${job.status})`,
+      status: job.status
+    }));
+
+    const workerPoints = mapOverview.workers.map((worker) => ({
+      id: `worker-${worker.workerId}`,
+      kind: "WORKER" as const,
+      lat: worker.location.lat,
+      lon: worker.location.lon,
+      label: `${worker.workerDisplayName} (${formatToken(worker.tier)})`,
+      status: worker.tier
+    }));
+
+    return [...jobPoints, ...workerPoints];
+  }, [mapOverview]);
+
+  const mapBounds = useMemo(() => {
+    if (!mapPoints.length) {
+      return null;
+    }
+    let minLat = Number.POSITIVE_INFINITY;
+    let maxLat = Number.NEGATIVE_INFINITY;
+    let minLon = Number.POSITIVE_INFINITY;
+    let maxLon = Number.NEGATIVE_INFINITY;
+
+    for (const point of mapPoints) {
+      minLat = Math.min(minLat, point.lat);
+      maxLat = Math.max(maxLat, point.lat);
+      minLon = Math.min(minLon, point.lon);
+      maxLon = Math.max(maxLon, point.lon);
+    }
+
+    return { minLat, maxLat, minLon, maxLon };
+  }, [mapPoints]);
+
   const loadQueue = useCallback(async () => {
     if (!session) return;
     setIsRefreshing(true);
@@ -462,6 +524,26 @@ function App() {
       setError(err instanceof Error ? err.message : "Queue refresh failed");
     } finally {
       setIsRefreshing(false);
+    }
+  }, [session]);
+
+  const loadOperationsView = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+    try {
+      const from = new Date();
+      from.setHours(0, 0, 0, 0);
+      const to = new Date(from);
+      to.setDate(to.getDate() + 7);
+      const [mapPayload, calendarPayload] = await Promise.all([
+        getMapOverview(session.accessToken),
+        getDispatchCalendar(session.accessToken, from.toISOString(), to.toISOString())
+      ]);
+      setMapOverview(mapPayload);
+      setCalendar(calendarPayload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Operations map/calendar refresh failed");
     }
   }, [session]);
 
@@ -513,6 +595,10 @@ function App() {
   }, [loadQueue]);
 
   useEffect(() => {
+    void loadOperationsView();
+  }, [loadOperationsView]);
+
+  useEffect(() => {
     void loadJobPanels(selectedJobId);
   }, [loadJobPanels, selectedJobId]);
 
@@ -531,9 +617,10 @@ function App() {
     const timer = window.setInterval(() => {
       void loadQueue();
       void loadJobPanels(selectedJobId);
+      void loadOperationsView();
     }, 15000);
     return () => window.clearInterval(timer);
-  }, [loadJobPanels, loadQueue, selectedJobId, session]);
+  }, [loadJobPanels, loadOperationsView, loadQueue, selectedJobId, session]);
 
   const selectJobByOffset = useCallback(
     (offset: number) => {
@@ -560,7 +647,7 @@ function App() {
   };
 
   const refreshPanelsAfterMutation = async () => {
-    await Promise.all([loadQueue(), loadJobPanels(selectedJobId)]);
+    await Promise.all([loadQueue(), loadJobPanels(selectedJobId), loadOperationsView()]);
   };
 
   const onRecompute = useCallback(async () => {
@@ -721,6 +808,17 @@ function App() {
       event.preventDefault();
       void onSendMessage();
     }
+  };
+
+  const pointStyle = (lat: number, lon: number): { left: string; top: string } => {
+    if (!mapBounds) {
+      return { left: "50%", top: "50%" };
+    }
+    const lonSpan = Math.max(0.001, mapBounds.maxLon - mapBounds.minLon);
+    const latSpan = Math.max(0.001, mapBounds.maxLat - mapBounds.minLat);
+    const x = ((lon - mapBounds.minLon) / lonSpan) * 100;
+    const y = 100 - ((lat - mapBounds.minLat) / latSpan) * 100;
+    return { left: `${x}%`, top: `${y}%` };
   };
 
   if (!session) {
@@ -981,10 +1079,6 @@ function App() {
                               {factor.fallback && <span>{factor.fallback}</span>}
                             </div>
                           ))}
-                          <details>
-                            <summary>Raw</summary>
-                            <pre>{JSON.stringify(candidate.scoreBreakdown, null, 2)}</pre>
-                          </details>
                         </div>
                       </td>
                     </tr>
@@ -1045,10 +1139,6 @@ function App() {
                       Quote in message
                     </button>
                   </div>
-                  <details>
-                    <summary>Raw payload</summary>
-                    <pre>{JSON.stringify(event.payload, null, 2)}</pre>
-                  </details>
                 </li>
               );
             })}
@@ -1090,6 +1180,130 @@ function App() {
               Send Message
             </button>
           </div>
+        </section>
+      </section>
+
+      <section className="ops-grid-layout">
+        <section className="panel ops-map">
+          <h2>Operations Map</h2>
+          <p className="queue-count">
+            {mapOverview
+              ? `${mapOverview.jobs.length} mapped jobs · ${mapOverview.workers.length} workers`
+              : "Loading map overview..."}
+          </p>
+          <div className="map-legend">
+            <span><i className="legend-dot job" /> Job</span>
+            <span><i className="legend-dot worker" /> Worker</span>
+          </div>
+          <div className="map-canvas" aria-label="Dispatch map overview">
+            {mapPoints.map((point) => (
+              <button
+                key={point.id}
+                className={point.kind === "JOB" ? "map-point job" : "map-point worker"}
+                style={pointStyle(point.lat, point.lon)}
+                title={`${point.label} · ${formatLatLon(point.lat, point.lon)}`}
+                onClick={() => {
+                  if (point.kind === "JOB") {
+                    const jobId = point.id.replace("job-", "");
+                    setSelectedJobId(jobId);
+                  }
+                }}
+              >
+                {point.kind === "JOB" ? "J" : "W"}
+              </button>
+            ))}
+          </div>
+
+          <h3>Optimal Next-Job Paths</h3>
+          <ul className="route-list">
+            {(mapOverview?.routeSuggestions ?? []).slice(0, 8).map((route) => (
+              <li key={`${route.workerId}-${route.toJobId}`}>
+                <strong>{route.workerDisplayName}</strong> →{" "}
+                <button
+                  className="linkish"
+                  onClick={() => setSelectedJobId(route.toJobId)}
+                >
+                  {route.toJobDescription}
+                </button>
+                <small>
+                  {" "}
+                  · {route.distanceKm.toFixed(1)} km · ~{route.estimatedDriveMinutes} min
+                </small>
+              </li>
+            ))}
+            {mapOverview && mapOverview.routeSuggestions.length === 0 && (
+              <li><small>No route suggestions available.</small></li>
+            )}
+          </ul>
+        </section>
+
+        <section className="panel ops-schedule">
+          <h2>Scheduling Calendar</h2>
+          {calendar ? (
+            <p className="queue-count">
+              {new Date(calendar.range.from).toLocaleDateString()} -{" "}
+              {new Date(calendar.range.to).toLocaleDateString()}
+            </p>
+          ) : (
+            <p className="queue-count">Loading schedule...</p>
+          )}
+          <div className="schedule-workers">
+            {(calendar?.workers ?? []).map((worker) => (
+              <article key={worker.workerId} className="schedule-worker-card">
+                <header>
+                  <strong>{worker.workerDisplayName}</strong>
+                  <span>{formatToken(worker.tier)}</span>
+                </header>
+                <p>
+                  <strong>Availability:</strong>{" "}
+                  {worker.availability.length > 0
+                    ? worker.availability
+                        .map((slot) => `${weekdayLabel(slot.dayOfWeek)} ${slot.startTime}-${slot.endTime}`)
+                        .join(", ")
+                    : "Not set"}
+                </p>
+                <p>
+                  <strong>Time Off:</strong>{" "}
+                  {worker.timeOff.length > 0
+                    ? worker.timeOff
+                        .map(
+                          (timeOff) =>
+                            `${new Date(timeOff.startAt).toLocaleDateString()}-${new Date(timeOff.endAt).toLocaleDateString()}`
+                        )
+                        .join(", ")
+                    : "None"}
+                </p>
+                <p>
+                  <strong>Scheduled Jobs:</strong> {worker.scheduledJobs.length}
+                </p>
+                <ul>
+                  {worker.scheduledJobs.slice(0, 3).map((job) => (
+                    <li key={job.id}>
+                      <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
+                        {job.description}
+                      </button>{" "}
+                      <small>{job.scheduleWindowStart ? new Date(job.scheduleWindowStart).toLocaleString() : "No window"}</small>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+
+          <h3>Unassigned Jobs</h3>
+          <ul className="route-list">
+            {(calendar?.unassignedJobs ?? []).slice(0, 10).map((job) => (
+              <li key={job.id}>
+                <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
+                  {job.description}
+                </button>
+                <small> · {job.status} · {job.urgency}</small>
+              </li>
+            ))}
+            {calendar && calendar.unassignedJobs.length === 0 && (
+              <li><small>No unassigned jobs in range.</small></li>
+            )}
+          </ul>
         </section>
       </section>
     </main>
