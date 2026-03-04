@@ -622,8 +622,12 @@ function App() {
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const [mapOverview, setMapOverview] = useState<DispatchMapOverview | null>(null);
   const [calendar, setCalendar] = useState<DispatchCalendar | null>(null);
+  const [priorityLevel, setPriorityLevel] = useState("HIGH");
+  const [requestPatchDescription, setRequestPatchDescription] = useState("");
+  const [requestPatchUrgency, setRequestPatchUrgency] = useState("HIGH");
   const overrideReasonInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
+  const selectedJobIdRef = useRef<string | null>(null);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? null, [jobs, selectedJobId]);
   const selectedJobActionSet = useMemo(
@@ -658,6 +662,7 @@ function App() {
   const dispatchActionButtons = useMemo(
     () =>
       Array.from(selectedJobActionSet)
+        .filter((action) => action !== "PRIORITIZE_JOB" && action !== "EDIT_REQUEST_FIELDS_WITH_AUDIT")
         .sort()
         .map((action) => ({
           action,
@@ -893,7 +898,26 @@ function App() {
     setIsRefreshing(true);
     try {
       const queue = await getQueue(session.accessToken);
-      setJobs(queue.items ?? []);
+      setJobs((previous) => {
+        const previousById = new Map(previous.map((job) => [job.id, job]));
+        const preserveJobId = selectedJobIdRef.current;
+        return (queue.items ?? []).map((job) => {
+          if (!preserveJobId || job.id !== preserveJobId) {
+            return job;
+          }
+          const existing = previousById.get(job.id);
+          if (!existing) {
+            return job;
+          }
+          return {
+            ...job,
+            workflowState: existing.workflowState ?? job.workflowState,
+            publicStatus: existing.publicStatus ?? job.publicStatus,
+            availableWorkflowActions: existing.availableWorkflowActions ?? job.availableWorkflowActions,
+            readReceiptsSummary: existing.readReceiptsSummary ?? job.readReceiptsSummary
+          };
+        });
+      });
       setLastRefreshAt(new Date().toISOString());
       setError(null);
     } catch (err) {
@@ -922,6 +946,10 @@ function App() {
       setError(err instanceof Error ? err.message : "Operations map/calendar refresh failed");
     }
   }, [mapScope, session]);
+
+  useEffect(() => {
+    selectedJobIdRef.current = selectedJobId;
+  }, [selectedJobId]);
 
   const loadJobPanels = useCallback(
     async (jobId: string | null = selectedJobId) => {
@@ -981,6 +1009,15 @@ function App() {
   }, [loadJobPanels, selectedJobId]);
 
   useEffect(() => {
+    if (!selectedJob) {
+      return;
+    }
+    setPriorityLevel(normalizeToken(selectedJob.urgency));
+    setRequestPatchDescription(selectedJob.description ?? "");
+    setRequestPatchUrgency(normalizeToken(selectedJob.urgency));
+  }, [selectedJob?.id]);
+
+  useEffect(() => {
     if (!filteredJobs.length) {
       setSelectedJobId(null);
       return;
@@ -993,9 +1030,11 @@ function App() {
   useEffect(() => {
     if (!session) return;
     const timer = window.setInterval(() => {
-      void loadQueue();
-      void loadJobPanels(selectedJobId);
-      void loadOperationsView();
+      void (async () => {
+        await loadQueue();
+        await loadJobPanels(selectedJobId);
+        await loadOperationsView();
+      })();
     }, 15000);
     return () => window.clearInterval(timer);
   }, [loadJobPanels, loadOperationsView, loadQueue, selectedJobId, session]);
@@ -1025,7 +1064,9 @@ function App() {
   };
 
   const refreshPanelsAfterMutation = async () => {
-    await Promise.all([loadQueue(), loadJobPanels(selectedJobId), loadOperationsView()]);
+    await loadQueue();
+    await loadJobPanels(selectedJobId);
+    await loadOperationsView();
   };
 
   const onRecompute = useCallback(async () => {
@@ -1078,6 +1119,48 @@ function App() {
     },
     [selectedJobId, session]
   );
+
+  const onPrioritizeJob = useCallback(async () => {
+    if (!selectedJobActionSet.has("PRIORITIZE_JOB")) {
+      return;
+    }
+    const normalized = normalizeToken(priorityLevel);
+    const level =
+      normalized === "CRITICAL"
+        ? "critical"
+        : normalized === "HIGH"
+          ? "high"
+          : normalized === "LOW"
+            ? "low"
+            : "normal";
+    await onRunJobAction("PRIORITIZE_JOB", {
+      priority: { level },
+      audit: { reasonCode: "dispatcher_override" }
+    });
+  }, [onRunJobAction, priorityLevel, selectedJobActionSet]);
+
+  const onEditRequestWithAudit = useCallback(async () => {
+    if (!selectedJobActionSet.has("EDIT_REQUEST_FIELDS_WITH_AUDIT") || !selectedJob) {
+      return;
+    }
+    const patch: Record<string, unknown> = {};
+    const nextDescription = requestPatchDescription.trim();
+    if (nextDescription && nextDescription !== selectedJob.description.trim()) {
+      patch.description = nextDescription;
+    }
+    const nextUrgency = normalizeToken(requestPatchUrgency);
+    if (nextUrgency && nextUrgency !== normalizeToken(selectedJob.urgency)) {
+      patch.urgency = nextUrgency;
+    }
+    if (Object.keys(patch).length === 0) {
+      setError("Set at least one request field change before applying audit edit.");
+      return;
+    }
+    await onRunJobAction("EDIT_REQUEST_FIELDS_WITH_AUDIT", {
+      requestPatch: patch,
+      audit: { reasonCode: "dispatcher_override" }
+    });
+  }, [onRunJobAction, requestPatchDescription, requestPatchUrgency, selectedJob, selectedJobActionSet]);
 
   const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
@@ -1406,6 +1489,45 @@ function App() {
                 <button onClick={onOverride} disabled={!selectedWorkerId || !overrideReason.trim()}>
                   Override Selected Candidate
                 </button>
+                {selectedJobActionSet.has("PRIORITIZE_JOB") && (
+                  <div className="workflow-action-inline">
+                    <label>
+                      Priority level
+                      <select value={priorityLevel} onChange={(event) => setPriorityLevel(event.target.value)}>
+                        <option value="LOW">Low</option>
+                        <option value="NORMAL">Normal</option>
+                        <option value="HIGH">High</option>
+                        <option value="CRITICAL">Critical</option>
+                      </select>
+                    </label>
+                    <button className="secondary" onClick={() => void onPrioritizeJob()}>
+                      Prioritize Job
+                    </button>
+                  </div>
+                )}
+                {selectedJobActionSet.has("EDIT_REQUEST_FIELDS_WITH_AUDIT") && (
+                  <div className="workflow-action-inline">
+                    <label>
+                      Request description
+                      <input
+                        value={requestPatchDescription}
+                        onChange={(event) => setRequestPatchDescription(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Request urgency
+                      <select value={requestPatchUrgency} onChange={(event) => setRequestPatchUrgency(event.target.value)}>
+                        <option value="LOW">Low</option>
+                        <option value="MEDIUM">Medium</option>
+                        <option value="HIGH">High</option>
+                        <option value="CRITICAL">Critical</option>
+                      </select>
+                    </label>
+                    <button className="secondary" onClick={() => void onEditRequestWithAudit()}>
+                      Apply Request Edit (Audit)
+                    </button>
+                  </div>
+                )}
                 {dispatchActionButtons.length > 0 && (
                   <div className="workflow-action-stack">
                     <small>Workflow actions</small>

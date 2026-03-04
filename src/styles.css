@@ -344,6 +344,15 @@ span {
   gap: 0.45rem;
 }
 
+.workflow-action-inline {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.55rem;
+  background: rgba(9, 19, 33, 0.7);
+  display: grid;
+  gap: 0.45rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
