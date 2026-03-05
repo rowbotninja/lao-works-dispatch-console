@@ -70,6 +70,15 @@ export type Message = {
   senderUserId: string;
   senderName?: string | null;
   senderRole?: string | null;
+  bodyOriginal?: string;
+  bodyDisplay?: string;
+  bodyTranslated?: string | null;
+  sourceLanguage?: "ENG" | "LAO" | "UNKNOWN" | null;
+  translatedLanguage?: "ENG" | "LAO" | null;
+  isAutoTranslated?: boolean;
+  translationStatus?: "NONE" | "PENDING" | "READY" | "FAILED";
+  translationModelId?: string | null;
+  translationModelVersion?: string | null;
   body: string;
   attachmentObjectKey: string | null;
   audience?: "CLIENT" | "WORKER" | "BOTH";

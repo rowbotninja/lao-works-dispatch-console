@@ -281,7 +281,11 @@ describe("Dispatch Console", () => {
         "access-token",
         "job-2",
         "Please confirm ETA",
-        "BOTH"
+        "BOTH",
+        {
+          sourceLanguage: "ENG",
+          translateTo: ["LAO"]
+        }
       )
     );
   });
@@ -356,7 +360,11 @@ describe("Dispatch Console", () => {
         "access-token",
         "job-2",
         "Keyboard dispatch update",
-        "BOTH"
+        "BOTH",
+        {
+          sourceLanguage: "ENG",
+          translateTo: ["LAO"]
+        }
       )
     );
 

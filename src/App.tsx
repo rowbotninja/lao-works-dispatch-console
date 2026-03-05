@@ -30,6 +30,7 @@ type Session = {
 };
 
 type MessageAudience = "CLIENT" | "WORKER" | "BOTH";
+type TranslationDisplay = "ORIGINAL" | "TRANSLATED" | "BOTH";
 type FocusPanel = "SIGNALS" | "DETAILS" | "MESSAGES" | "TIMELINE" | "PAYMENTS_DISPUTES";
 type OpsTab = "ROUTING" | "SCHEDULING";
 
@@ -764,6 +765,20 @@ const formatMessageSender = (message: Message): string => {
   return roleLabel;
 };
 
+const getMessageTranslationLabel = (message: Message): string | null => {
+  const status = normalizeToken(message.translationStatus ?? "NONE");
+  if (status === "READY") {
+    return "Auto-translated";
+  }
+  if (status === "PENDING") {
+    return "Translating";
+  }
+  if (status === "FAILED") {
+    return "Translation failed";
+  }
+  return null;
+};
+
 const getMapPointColor = (point: MapPoint): string => {
   if (point.kind === "WORKER") {
     return "#57cbff";
@@ -832,6 +847,7 @@ function App() {
   const [overrideReason, setOverrideReason] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
   const [messageAudience, setMessageAudience] = useState<MessageAudience>("BOTH");
+  const [messageTranslationDisplay, setMessageTranslationDisplay] = useState<TranslationDisplay>("BOTH");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("ALL");
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("ALL");
@@ -1296,7 +1312,10 @@ function App() {
           getCandidates(session.accessToken, jobId),
           getTimeline(session.accessToken, jobId),
           getReadReceipts(session.accessToken, jobId),
-          getMessages(session.accessToken, jobId)
+          getMessages(session.accessToken, jobId, {
+            viewerLanguage: "ENG",
+            translationDisplay: messageTranslationDisplay
+          })
         ]);
         setJobs((previous) => previous.map((job) => (job.id === jobId ? { ...job, ...jobDetail } : job)));
         const nextCandidates = (candidatePayload.candidates ?? [])
@@ -1329,7 +1348,7 @@ function App() {
         setError(err instanceof Error ? err.message : "Job panel refresh failed");
       }
     },
-    [selectedJobId, session]
+    [messageTranslationDisplay, selectedJobId, session]
   );
 
   useEffect(() => {
@@ -1643,7 +1662,10 @@ function App() {
   const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
     try {
-      await sendMessage(session.accessToken, selectedJobId, messageDraft.trim(), messageAudience);
+      await sendMessage(session.accessToken, selectedJobId, messageDraft.trim(), messageAudience, {
+        sourceLanguage: "ENG",
+        translateTo: ["LAO"]
+      });
       setMessageDraft("");
       await loadJobPanels(selectedJobId);
       setError(null);
@@ -2430,6 +2452,19 @@ function App() {
           {focusPanel === "MESSAGES" && (
             <div>
               <h2>Messaging {selectedJob ? `· ${formatJobHeadline(selectedJob)}` : ""}</h2>
+              <div className="compose with-audience">
+                <label htmlFor="translation-display">Display mode</label>
+                <select
+                  id="translation-display"
+                  aria-label="Translation display mode"
+                  value={messageTranslationDisplay}
+                  onChange={(event) => setMessageTranslationDisplay(event.target.value as TranslationDisplay)}
+                >
+                  <option value="ORIGINAL">Original</option>
+                  <option value="TRANSLATED">Translated</option>
+                  <option value="BOTH">Both</option>
+                </select>
+              </div>
               <div className="messages grouped">
                 {groupedMessages.map((dayGroup) => (
                   <section key={dayGroup.dayKey} className="message-day-group">
@@ -2454,9 +2489,34 @@ function App() {
                             <span>{new Date(thread.startedAt).toLocaleTimeString()}</span>
                           </header>
                           <div className="message-thread-lines">
-                            {thread.items.map((message) => (
-                              <p key={message.id}>{message.body}</p>
-                            ))}
+                            {thread.items.map((message) => {
+                              const translationLabel = getMessageTranslationLabel(message);
+                              const bodyOriginal = message.bodyOriginal ?? message.body;
+                              const bodyTranslated = message.bodyTranslated ?? null;
+                              const bodyDisplay = message.bodyDisplay ?? message.body;
+                              const shouldShowBoth =
+                                messageTranslationDisplay === "BOTH" &&
+                                bodyTranslated &&
+                                bodyTranslated.trim().length > 0 &&
+                                bodyTranslated.trim() !== bodyOriginal.trim();
+                              return (
+                                <p key={message.id}>
+                                  {bodyDisplay}
+                                  {shouldShowBoth ? (
+                                    <>
+                                      <br />
+                                      <small>Original: {bodyOriginal}</small>
+                                    </>
+                                  ) : null}
+                                  {translationLabel ? (
+                                    <>
+                                      <br />
+                                      <small>{translationLabel}</small>
+                                    </>
+                                  ) : null}
+                                </p>
+                              );
+                            })}
                           </div>
                         </article>
                       );

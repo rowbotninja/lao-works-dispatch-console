@@ -159,20 +159,45 @@ export const getReadReceipts = (
   return apiRequest<{ items: JobReadReceipt[] }>(`/jobs/${jobId}/read-receipts${suffix}`, { method: "GET" }, accessToken);
 };
 
-export const getMessages = (accessToken: string, jobId: string): Promise<{ items: Message[] }> =>
-  apiRequest<{ items: Message[] }>(`/jobs/${jobId}/messages`, { method: "GET" }, accessToken);
+export const getMessages = (
+  accessToken: string,
+  jobId: string,
+  options?: {
+    viewerLanguage?: "ENG" | "LAO";
+    translationDisplay?: "ORIGINAL" | "TRANSLATED" | "BOTH";
+  }
+): Promise<{ items: Message[] }> => {
+  const params = new URLSearchParams();
+  if (options?.viewerLanguage) {
+    params.set("viewerLanguage", options.viewerLanguage);
+  }
+  if (options?.translationDisplay) {
+    params.set("translationDisplay", options.translationDisplay);
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiRequest<{ items: Message[] }>(`/jobs/${jobId}/messages${suffix}`, { method: "GET" }, accessToken);
+};
 
 export const sendMessage = (
   accessToken: string,
   jobId: string,
   body: string,
-  audience: "CLIENT" | "WORKER" | "BOTH"
+  audience: "CLIENT" | "WORKER" | "BOTH",
+  options?: {
+    sourceLanguage?: "ENG" | "LAO";
+    translateTo?: Array<"ENG" | "LAO">;
+  }
 ): Promise<Message> =>
   apiRequest<Message>(
     `/jobs/${jobId}/messages`,
     {
       method: "POST",
-      body: JSON.stringify({ body, audience })
+      body: JSON.stringify({
+        body,
+        audience,
+        sourceLanguage: options?.sourceLanguage,
+        translateTo: options?.translateTo
+      })
     },
     accessToken
   );
