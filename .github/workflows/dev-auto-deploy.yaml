@@ -1,0 +1,64 @@
+name: Dev Auto Deploy (Dispatch Console)
+
+on:
+  push:
+    branches: ["master"]
+  workflow_dispatch:
+    inputs:
+      tag_override:
+        description: "Optional image tag override"
+        required: false
+        type: string
+
+concurrency:
+  group: lao-works-dev-dispatch-console-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, inf01]
+    steps:
+      - name: Sync local repos
+        shell: bash
+        run: |
+          set -euo pipefail
+          /srv/lao-works/lao-works-infra/scripts/sync-local-repos.sh \
+            lao-works-infra \
+            lao-works-dispatch-console
+
+      - name: Compute release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ github.event_name == 'workflow_dispatch' && inputs.tag_override || '' }}" ]]; then
+            TAG="${{ inputs.tag_override }}"
+          else
+            SHA="$(git -C /srv/lao-works/lao-works-dispatch-console rev-parse --short HEAD)"
+            TAG="dev-$(date -u +%Y%m%d%H%M)-${SHA}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push dispatch console image
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}" \
+          REGISTRY=registry.rowbot.lan:5000 \
+          VITE_API_BASE_URL=http://dev-api.lao-works.rowbot.lan/v1 \
+          /srv/lao-works/lao-works-infra/scripts/build-push-dispatch-console-image.sh
+
+      - name: Deploy dispatch console image to lao-works-dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          DISPATCH_CONSOLE_TAG="${{ steps.tag.outputs.tag }}" \
+          NAMESPACE=lao-works-dev \
+          /srv/lao-works/lao-works-infra/scripts/deploy-dev-images.sh
+
+      - name: Verify deployed dispatch console image
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n lao-works-dev get deploy dispatch-console \
+            -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image
