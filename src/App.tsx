@@ -204,6 +204,79 @@ const formatToken = (value: string): string =>
     .map((segment) => segment.slice(0, 1).toUpperCase() + segment.slice(1).toLowerCase())
     .join(" ");
 
+const removeSchedulingMetaFromDescription = (description: string | null | undefined): string => {
+  if (!description) {
+    return "";
+  }
+  return description
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("[Scheduling]"))
+    .join(" ")
+    .trim();
+};
+
+const extractSchedulingMetaLine = (description: string | null | undefined): string | null => {
+  if (!description) {
+    return null;
+  }
+  const line = description
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith("[Scheduling]"));
+  if (!line) {
+    return null;
+  }
+  return line.replace("[Scheduling]", "").trim();
+};
+
+const getWindowLabel = (job: Pick<Job, "scheduleWindowStart" | "scheduleWindowEnd">): string => {
+  if (job.scheduleWindowStart && job.scheduleWindowEnd) {
+    return `${new Date(job.scheduleWindowStart).toLocaleString()} - ${new Date(job.scheduleWindowEnd).toLocaleString()}`;
+  }
+  if (job.scheduleWindowStart) {
+    return new Date(job.scheduleWindowStart).toLocaleString();
+  }
+  if (job.scheduleWindowEnd) {
+    return new Date(job.scheduleWindowEnd).toLocaleString();
+  }
+  return "Not scheduled";
+};
+
+const inferSchedulePreference = (job: Pick<Job, "description" | "scheduleWindowStart" | "scheduleWindowEnd">): string => {
+  const schedulingMeta = extractSchedulingMetaLine(job.description);
+  if (schedulingMeta) {
+    const normalized = schedulingMeta.toLowerCase();
+    if (normalized.includes("asap")) {
+      return "ASAP (next 6h)";
+    }
+    if (normalized.includes("6-hour window")) {
+      return "6-hour window";
+    }
+    if (normalized.includes("specific-time premium")) {
+      return "Specific time (+ premium)";
+    }
+    return schedulingMeta;
+  }
+
+  if (job.scheduleWindowStart && job.scheduleWindowEnd) {
+    const start = Date.parse(job.scheduleWindowStart);
+    const end = Date.parse(job.scheduleWindowEnd);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      const hours = (end - start) / (1000 * 60 * 60);
+      if (hours >= 5.5 && hours <= 6.5) {
+        return "6-hour window";
+      }
+      if (hours <= 1.25) {
+        return "Specific time";
+      }
+    }
+    return "Scheduled window";
+  }
+
+  return "Not set";
+};
+
 const getJobStatusLabel = (job: Job): string =>
   job.publicStatus?.trim() || formatToken(job.workflowState ?? job.status);
 
@@ -406,7 +479,8 @@ const getDefaultDispatchActionPayload = (
 };
 
 const formatJobHeadline = (job: Job): string => {
-  const description = job.description?.trim() || formatToken(job.jobType);
+  const cleanedDescription = removeSchedulingMetaFromDescription(job.description);
+  const description = cleanedDescription || formatToken(job.jobType);
   const business = job.clientOrganizationName?.trim();
   if (business) {
     return `${business} - ${description}`;
@@ -1801,6 +1875,9 @@ function App() {
                 <small>
                   {formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}
                 </small>
+                <small>
+                  Schedule: {inferSchedulePreference(job)} · {getWindowLabel(job)}
+                </small>
               </button>
             </li>
           ))}
@@ -1826,10 +1903,11 @@ function App() {
                   Payment unread {selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0}
                 </p>
                 <p>
+                  <strong>Schedule Preference:</strong> {inferSchedulePreference(selectedJob)}
+                </p>
+                <p>
                   <strong>Window:</strong>{" "}
-                  {selectedJob.scheduleWindowStart && selectedJob.scheduleWindowEnd
-                    ? `${new Date(selectedJob.scheduleWindowStart).toLocaleString()} - ${new Date(selectedJob.scheduleWindowEnd).toLocaleString()}`
-                    : "Not scheduled"}
+                  {getWindowLabel(selectedJob)}
                 </p>
                 <p><strong>Selected Worker:</strong> <span data-testid="selected-worker-id">{selectedWorkerLabel}</span></p>
               </div>
@@ -2043,10 +2121,11 @@ function App() {
                     </p>
                   </div>
                   <p>
+                    <strong>Schedule Preference:</strong> {inferSchedulePreference(selectedJob)}
+                  </p>
+                  <p>
                     <strong>Window:</strong>{" "}
-                    {selectedJob.scheduleWindowStart && selectedJob.scheduleWindowEnd
-                      ? `${new Date(selectedJob.scheduleWindowStart).toLocaleString()} - ${new Date(selectedJob.scheduleWindowEnd).toLocaleString()}`
-                      : "Not scheduled"}
+                    {getWindowLabel(selectedJob)}
                   </p>
                 </>
               ) : (
@@ -2534,7 +2613,7 @@ function App() {
                     {worker.scheduledJobs.slice(0, 3).map((job) => (
                       <li key={job.id}>
                         <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
-                          {job.description}
+                          {removeSchedulingMetaFromDescription(job.description) || job.description}
                         </button>{" "}
                         <small>{job.scheduleWindowStart ? new Date(job.scheduleWindowStart).toLocaleString() : "No window"}</small>
                       </li>
@@ -2549,7 +2628,7 @@ function App() {
               {(calendar?.unassignedJobs ?? []).slice(0, 10).map((job) => (
                 <li key={job.id}>
                   <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
-                    {job.description}
+                    {removeSchedulingMetaFromDescription(job.description) || job.description}
                   </button>
                   <small> · {job.status} · {job.urgency}</small>
                 </li>
