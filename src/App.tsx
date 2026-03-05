@@ -884,6 +884,7 @@ function App() {
   const [messageDraft, setMessageDraft] = useState("");
   const [messageAudience, setMessageAudience] = useState<MessageAudience>("BOTH");
   const [messageTranslationDisplay, setMessageTranslationDisplay] = useState<TranslationDisplay>("BOTH");
+  const [messageViewerLanguage, setMessageViewerLanguage] = useState<AppLanguage>(() => getInitialAppLanguage());
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("ALL");
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("ALL");
@@ -1356,7 +1357,7 @@ function App() {
           getTimeline(session.accessToken, jobId),
           getReadReceipts(session.accessToken, jobId),
           getMessages(session.accessToken, jobId, {
-            viewerLanguage: appLanguage,
+            viewerLanguage: messageViewerLanguage,
             translationDisplay: messageTranslationDisplay
           })
         ]);
@@ -1391,7 +1392,7 @@ function App() {
         setError(err instanceof Error ? err.message : t(appLanguage, "error.jobPanelRefreshFailed"));
       }
     },
-    [appLanguage, messageTranslationDisplay, selectedJobId, session]
+    [appLanguage, messageTranslationDisplay, messageViewerLanguage, selectedJobId, session]
   );
 
   useEffect(() => {
@@ -1431,6 +1432,10 @@ function App() {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, appLanguage);
     }
+  }, [appLanguage]);
+
+  useEffect(() => {
+    setMessageViewerLanguage(appLanguage);
   }, [appLanguage]);
 
   useEffect(() => {
@@ -2522,6 +2527,16 @@ function App() {
             <div>
               <h2>{t(appLanguage, "panel.messages")} {selectedJob ? `· ${formatJobHeadline(selectedJob)}` : ""}</h2>
               <div className="compose with-audience">
+                <label htmlFor="message-viewer-language">{t(appLanguage, "messages.viewerLanguage")}</label>
+                <select
+                  id="message-viewer-language"
+                  aria-label="Message language"
+                  value={messageViewerLanguage}
+                  onChange={(event) => setMessageViewerLanguage(event.target.value as AppLanguage)}
+                >
+                  <option value="ENG">{t(appLanguage, "messages.viewerLanguageEng")}</option>
+                  <option value="LAO">{t(appLanguage, "messages.viewerLanguageLao")}</option>
+                </select>
                 <label htmlFor="translation-display">{t(appLanguage, "messages.displayMode")}</label>
                 <select
                   id="translation-display"
