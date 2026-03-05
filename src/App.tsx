@@ -123,6 +123,9 @@ type LanguageFilter = "ALL" | "ENG" | "LAO" | "NONE";
 type RequestPatchLanguage = "UNCHANGED" | "ENG" | "LAO" | "NONE";
 
 const LANGUAGE_OPTIONS = ["ENG", "LAO"] as const;
+type AppLanguage = (typeof LANGUAGE_OPTIONS)[number];
+const DEFAULT_APP_LANGUAGE: AppLanguage = "ENG";
+const APP_LANGUAGE_STORAGE_KEY = "laoWorksDispatchAppLanguage";
 
 const MAP_SCOPES: Array<{ scope: MapScope; label: string; hint: string }> = [
   { scope: "TODAY", label: "Today", hint: "Active and unscheduled jobs for today" },
@@ -227,6 +230,17 @@ const formatLanguageCode = (value: string | null | undefined): string => {
   }
   return "Not set";
 };
+
+const getInitialAppLanguage = (): AppLanguage => {
+  if (typeof window === "undefined") {
+    return DEFAULT_APP_LANGUAGE;
+  }
+  const stored = window.localStorage.getItem(APP_LANGUAGE_STORAGE_KEY);
+  return normalizeLanguageCode(stored) ?? DEFAULT_APP_LANGUAGE;
+};
+
+const getMessageTranslationTargets = (sourceLanguage: AppLanguage): Array<"ENG" | "LAO"> =>
+  sourceLanguage === "ENG" ? ["LAO"] : ["ENG"];
 
 const formatToken = (value: string): string =>
   value
@@ -851,6 +865,7 @@ function App() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("ALL");
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("ALL");
+  const [appLanguage, setAppLanguage] = useState<AppLanguage>(() => getInitialAppLanguage());
   const [skillFilter, setSkillFilter] = useState("ALL");
   const [personalityFilter, setPersonalityFilter] = useState("ALL");
   const [queueSort, setQueueSort] = useState<QueueSort>("NEWEST");
@@ -1313,7 +1328,7 @@ function App() {
           getTimeline(session.accessToken, jobId),
           getReadReceipts(session.accessToken, jobId),
           getMessages(session.accessToken, jobId, {
-            viewerLanguage: "ENG",
+            viewerLanguage: appLanguage,
             translationDisplay: messageTranslationDisplay
           })
         ]);
@@ -1348,7 +1363,7 @@ function App() {
         setError(err instanceof Error ? err.message : "Job panel refresh failed");
       }
     },
-    [messageTranslationDisplay, selectedJobId, session]
+    [appLanguage, messageTranslationDisplay, selectedJobId, session]
   );
 
   useEffect(() => {
@@ -1383,6 +1398,12 @@ function App() {
       )
     );
   }, [selectedJob?.id]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, appLanguage);
+    }
+  }, [appLanguage]);
 
   useEffect(() => {
     const paymentProof = latestPaymentProofAction?.actionPayload.paymentProof;
@@ -1663,8 +1684,8 @@ function App() {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
     try {
       await sendMessage(session.accessToken, selectedJobId, messageDraft.trim(), messageAudience, {
-        sourceLanguage: "ENG",
-        translateTo: ["LAO"]
+        sourceLanguage: appLanguage,
+        translateTo: getMessageTranslationTargets(appLanguage)
       });
       setMessageDraft("");
       await loadJobPanels(selectedJobId);
@@ -1672,7 +1693,7 @@ function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send message failed");
     }
-  }, [loadJobPanels, messageAudience, messageDraft, selectedJobId, session]);
+  }, [appLanguage, loadJobPanels, messageAudience, messageDraft, selectedJobId, session]);
 
   const onUseTimelineReason = useCallback((reason: string) => {
     setOverrideReason(reason);
@@ -1811,6 +1832,20 @@ function App() {
       <header className="topbar">
         <h1>Dispatch Console</h1>
         <div className="topbar-actions">
+          <label className="topbar-language">
+            Console language
+            <select
+              aria-label="Console language"
+              value={appLanguage}
+              onChange={(event) => setAppLanguage(event.target.value as AppLanguage)}
+            >
+              {LANGUAGE_OPTIONS.map((language) => (
+                <option key={language} value={language}>
+                  {formatLanguageCode(language)}
+                </option>
+              ))}
+            </select>
+          </label>
           <small>
             {lastRefreshAt
               ? `Last refresh: ${new Date(lastRefreshAt).toLocaleTimeString()}`

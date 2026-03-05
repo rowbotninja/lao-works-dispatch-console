@@ -165,6 +165,7 @@ const candidatesByJobId: Record<string, Candidate[]> = {
 describe("Dispatch Console", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
 
     mockedApi.login.mockResolvedValue({
       accessToken: "access-token",
@@ -369,5 +370,43 @@ describe("Dispatch Console", () => {
     );
 
     expect(screen.getByText("Lobby access is open.")).toBeInTheDocument();
+  });
+
+  it("uses selected console language for message viewing and send translation", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
+    await waitFor(() => expect(mockedApi.getQueue).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockedApi.getMessages).toHaveBeenCalledWith("access-token", "job-1", {
+        viewerLanguage: "ENG",
+        translationDisplay: "BOTH"
+      })
+    );
+
+    await user.selectOptions(screen.getByLabelText("Console language"), "LAO");
+    await waitFor(() =>
+      expect(mockedApi.getMessages).toHaveBeenCalledWith("access-token", "job-1", {
+        viewerLanguage: "LAO",
+        translationDisplay: "BOTH"
+      })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Messages" }));
+    await user.type(screen.getByPlaceholderText("Send a message to job thread"), "ສະບາຍດີ");
+    await user.click(screen.getByRole("button", { name: "Send Message" }));
+    await waitFor(() =>
+      expect(mockedApi.sendMessage).toHaveBeenCalledWith(
+        "access-token",
+        "job-1",
+        "ສະບາຍດີ",
+        "BOTH",
+        {
+          sourceLanguage: "LAO",
+          translateTo: ["ENG"]
+        }
+      )
+    );
   });
 });
