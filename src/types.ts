@@ -17,6 +17,7 @@ export type Job = {
   jobType: string;
   description: string;
   urgency: string;
+  languagePreference?: "ENG" | "LAO" | null;
   requiredSkills: string[];
   personalityPreferences: string[];
   scheduleWindowStart: string | null;

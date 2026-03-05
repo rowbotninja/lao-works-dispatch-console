@@ -118,6 +118,10 @@ type StatusFilter = "ALL" | (typeof WORKFLOW_STATUSES)[number];
 
 const URGENCY_LEVELS = ["LOW", "NORMAL", "HIGH", "CRITICAL"] as const;
 type UrgencyFilter = "ALL" | (typeof URGENCY_LEVELS)[number];
+type LanguageFilter = "ALL" | "ENG" | "LAO" | "NONE";
+type RequestPatchLanguage = "UNCHANGED" | "ENG" | "LAO" | "NONE";
+
+const LANGUAGE_OPTIONS = ["ENG", "LAO"] as const;
 
 const MAP_SCOPES: Array<{ scope: MapScope; label: string; hint: string }> = [
   { scope: "TODAY", label: "Today", hint: "Active and unscheduled jobs for today" },
@@ -197,6 +201,31 @@ const MESSAGE_AUDIENCE_OPTIONS: Array<{ value: MessageAudience; label: string }>
 ];
 
 const normalizeToken = (value: string): string => value.trim().toUpperCase().replace(/\s+/g, "_");
+
+const normalizeLanguageCode = (value: string | null | undefined): "ENG" | "LAO" | null => {
+  if (!value) {
+    return null;
+  }
+  const token = value.trim().toUpperCase();
+  if (["ENG", "EN", "ENGLISH"].includes(token)) {
+    return "ENG";
+  }
+  if (["LAO", "LO", "LA"].includes(token)) {
+    return "LAO";
+  }
+  return null;
+};
+
+const formatLanguageCode = (value: string | null | undefined): string => {
+  const normalized = normalizeLanguageCode(value);
+  if (normalized === "ENG") {
+    return "English (ENG)";
+  }
+  if (normalized === "LAO") {
+    return "Lao (LAO)";
+  }
+  return "Not set";
+};
 
 const formatToken = (value: string): string =>
   value
@@ -805,6 +834,7 @@ function App() {
   const [messageAudience, setMessageAudience] = useState<MessageAudience>("BOTH");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [urgencyFilter, setUrgencyFilter] = useState<UrgencyFilter>("ALL");
+  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>("ALL");
   const [skillFilter, setSkillFilter] = useState("ALL");
   const [personalityFilter, setPersonalityFilter] = useState("ALL");
   const [queueSort, setQueueSort] = useState<QueueSort>("NEWEST");
@@ -820,6 +850,7 @@ function App() {
   const [priorityLevel, setPriorityLevel] = useState("HIGH");
   const [requestPatchDescription, setRequestPatchDescription] = useState("");
   const [requestPatchUrgency, setRequestPatchUrgency] = useState("HIGH");
+  const [requestPatchLanguage, setRequestPatchLanguage] = useState<RequestPatchLanguage>("UNCHANGED");
   const [rescheduleStartLocal, setRescheduleStartLocal] = useState("");
   const [rescheduleEndLocal, setRescheduleEndLocal] = useState("");
   const [paymentConfirmAmount, setPaymentConfirmAmount] = useState("0");
@@ -1030,14 +1061,18 @@ function App() {
     const visibleJobs = jobs.filter((job) => {
       const status = normalizeToken(job.workflowState ?? job.status);
       const urgency = normalizeToken(job.urgency);
+      const language = normalizeLanguageCode(job.languagePreference);
       const skillSet = new Set(job.requiredSkills.map(normalizeToken));
       const personalitySet = new Set(job.personalityPreferences.map(normalizeToken));
       const matchesStatus = statusFilter === "ALL" || status === statusFilter;
       const matchesUrgency = urgencyFilter === "ALL" || urgency === urgencyFilter;
+      const matchesLanguage =
+        languageFilter === "ALL" ||
+        (languageFilter === "NONE" ? language === null : language === languageFilter);
       const matchesSkill = skillFilter === "ALL" || skillSet.has(skillFilter);
       const matchesPersonality = personalityFilter === "ALL" || personalitySet.has(personalityFilter);
 
-      return matchesStatus && matchesUrgency && matchesSkill && matchesPersonality;
+      return matchesStatus && matchesUrgency && matchesLanguage && matchesSkill && matchesPersonality;
     });
 
     visibleJobs.sort((left, right) => {
@@ -1064,7 +1099,7 @@ function App() {
     });
 
     return visibleJobs;
-  }, [jobs, personalityFilter, queueSort, skillFilter, statusFilter, urgencyFilter]);
+  }, [jobs, languageFilter, personalityFilter, queueSort, skillFilter, statusFilter, urgencyFilter]);
 
   const mapPoints = useMemo(() => {
     if (!mapOverview) {
@@ -1316,6 +1351,7 @@ function App() {
     setPriorityLevel(normalizeToken(selectedJob.urgency));
     setRequestPatchDescription(selectedJob.description ?? "");
     setRequestPatchUrgency(normalizeToken(selectedJob.urgency));
+    setRequestPatchLanguage(normalizeLanguageCode(selectedJob.languagePreference) ?? "NONE");
     const now = Date.now();
     setRescheduleStartLocal(
       toLocalDateTimeInputValue(
@@ -1475,6 +1511,17 @@ function App() {
     if (nextUrgency && nextUrgency !== normalizeToken(selectedJob.urgency)) {
       patch.urgency = nextUrgency;
     }
+    const currentLanguage = normalizeLanguageCode(selectedJob.languagePreference);
+    if (requestPatchLanguage !== "UNCHANGED") {
+      if (requestPatchLanguage === "NONE" && currentLanguage !== null) {
+        patch.languagePreference = null;
+      } else if (
+        (requestPatchLanguage === "ENG" || requestPatchLanguage === "LAO") &&
+        requestPatchLanguage !== currentLanguage
+      ) {
+        patch.languagePreference = requestPatchLanguage;
+      }
+    }
     if (Object.keys(patch).length === 0) {
       setError("Set at least one request field change before applying audit edit.");
       return;
@@ -1483,7 +1530,7 @@ function App() {
       requestPatch: patch,
       audit: { reasonCode: "dispatcher_override" }
     });
-  }, [onRunJobAction, requestPatchDescription, requestPatchUrgency, selectedJob, selectedJobActionSet]);
+  }, [onRunJobAction, requestPatchDescription, requestPatchLanguage, requestPatchUrgency, selectedJob, selectedJobActionSet]);
 
   const onRescheduleJob = useCallback(async () => {
     if (!selectedJobActionSet.has("RESCHEDULE")) {
@@ -1826,6 +1873,15 @@ function App() {
             </select>
           </label>
           <label>
+            Language
+            <select aria-label="Language filter" value={languageFilter} onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)}>
+              <option value="ALL">All</option>
+              <option value="ENG">English (ENG)</option>
+              <option value="LAO">Lao (LAO)</option>
+              <option value="NONE">Not set</option>
+            </select>
+          </label>
+          <label>
             Skill
             <select aria-label="Skill filter" value={skillFilter} onChange={(event) => setSkillFilter(event.target.value)}>
               <option value="ALL">All</option>
@@ -1869,11 +1925,15 @@ function App() {
                 <div className="job-meta">
                   <span className="badge">{getJobStatusLabel(job)}</span>
                   <span className="badge">{job.urgency}</span>
+                  <span className="badge">{normalizeLanguageCode(job.languagePreference) ?? "NO_LANG"}</span>
                   <span className="badge">{job.requiredSkills.length} skills</span>
                   {getDispatchUnreadCount(job) > 0 && <span className="badge">Unread {getDispatchUnreadCount(job)}</span>}
                 </div>
                 <small>
                   {formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}
+                </small>
+                <small>
+                  Language: {formatLanguageCode(job.languagePreference)} ·
                 </small>
                 <small>
                   Schedule: {inferSchedulePreference(job)} · {getWindowLabel(job)}
@@ -1896,6 +1956,7 @@ function App() {
                 <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
                 <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
                 <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
+                <p><strong>Language:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
                 <p>
                   <strong>Read Receipts:</strong>{" "}
                   Msg unread {selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0} ·
@@ -1956,6 +2017,21 @@ function App() {
                         <option value="MEDIUM">Medium</option>
                         <option value="HIGH">High</option>
                         <option value="CRITICAL">Critical</option>
+                      </select>
+                    </label>
+                    <label>
+                      Request language
+                      <select
+                        value={requestPatchLanguage}
+                        onChange={(event) => setRequestPatchLanguage(event.target.value as RequestPatchLanguage)}
+                      >
+                        <option value="UNCHANGED">No change</option>
+                        {LANGUAGE_OPTIONS.map((language) => (
+                          <option key={language} value={language}>
+                            {formatLanguageCode(language)}
+                          </option>
+                        ))}
+                        <option value="NONE">Clear language</option>
                       </select>
                     </label>
                     <button className="secondary" onClick={() => void onEditRequestWithAudit()}>
@@ -2096,6 +2172,7 @@ function App() {
                   <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
                   <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
                   <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
+                  <p><strong>Language:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
                   <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
                   <p><strong>Personality:</strong> {selectedJob.personalityPreferences.join(", ") || "None"}</p>
                   <p>
