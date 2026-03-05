@@ -230,15 +230,15 @@ const normalizeLanguageCode = (value: string | null | undefined): "ENG" | "LAO" 
   return null;
 };
 
-const formatLanguageCode = (value: string | null | undefined): string => {
+const formatLanguageCode = (locale: AppLanguage, value: string | null | undefined): string => {
   const normalized = normalizeLanguageCode(value);
   if (normalized === "ENG") {
-    return "English (ENG)";
+    return t(locale, "common.englishCode");
   }
   if (normalized === "LAO") {
-    return "Lao (LAO)";
+    return t(locale, "common.laoCode");
   }
-  return "Not set";
+  return t(locale, "common.notSet");
 };
 
 const getInitialAppLanguage = (): AppLanguage => {
@@ -284,7 +284,7 @@ const extractSchedulingMetaLine = (description: string | null | undefined): stri
   return line.replace("[Scheduling]", "").trim();
 };
 
-const getWindowLabel = (job: Pick<Job, "scheduleWindowStart" | "scheduleWindowEnd">): string => {
+const getWindowLabel = (locale: AppLanguage, job: Pick<Job, "scheduleWindowStart" | "scheduleWindowEnd">): string => {
   if (job.scheduleWindowStart && job.scheduleWindowEnd) {
     return `${new Date(job.scheduleWindowStart).toLocaleString()} - ${new Date(job.scheduleWindowEnd).toLocaleString()}`;
   }
@@ -294,21 +294,24 @@ const getWindowLabel = (job: Pick<Job, "scheduleWindowStart" | "scheduleWindowEn
   if (job.scheduleWindowEnd) {
     return new Date(job.scheduleWindowEnd).toLocaleString();
   }
-  return "Not scheduled";
+  return t(locale, "common.notScheduled");
 };
 
-const inferSchedulePreference = (job: Pick<Job, "description" | "scheduleWindowStart" | "scheduleWindowEnd">): string => {
+const inferSchedulePreference = (
+  locale: AppLanguage,
+  job: Pick<Job, "description" | "scheduleWindowStart" | "scheduleWindowEnd">
+): string => {
   const schedulingMeta = extractSchedulingMetaLine(job.description);
   if (schedulingMeta) {
     const normalized = schedulingMeta.toLowerCase();
     if (normalized.includes("asap")) {
-      return "ASAP (next 6h)";
+      return t(locale, "schedulePreference.asap");
     }
     if (normalized.includes("6-hour window")) {
-      return "6-hour window";
+      return t(locale, "schedulePreference.window6h");
     }
     if (normalized.includes("specific-time premium")) {
-      return "Specific time (+ premium)";
+      return t(locale, "schedulePreference.specificPremium");
     }
     return schedulingMeta;
   }
@@ -319,16 +322,16 @@ const inferSchedulePreference = (job: Pick<Job, "description" | "scheduleWindowS
     if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
       const hours = (end - start) / (1000 * 60 * 60);
       if (hours >= 5.5 && hours <= 6.5) {
-        return "6-hour window";
+        return t(locale, "schedulePreference.window6h");
       }
       if (hours <= 1.25) {
-        return "Specific time";
+        return t(locale, "schedulePreference.specific");
       }
     }
-    return "Scheduled window";
+    return t(locale, "schedulePreference.scheduledWindow");
   }
 
-  return "Not set";
+  return t(locale, "common.notSet");
 };
 
 const getJobStatusLabel = (job: Job): string =>
@@ -339,9 +342,9 @@ const getDispatchUnreadCount = (job: Job): number =>
   (job.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0) +
   (job.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0);
 
-const formatOptionalTimestamp = (value: string | null | undefined): string => {
+const formatOptionalTimestamp = (locale: AppLanguage, value: string | null | undefined): string => {
   if (!value) {
-    return "Never";
+    return t(locale, "common.never");
   }
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) {
@@ -556,7 +559,16 @@ const formatWorkerLabel = (candidate: Candidate): string =>
 
 const formatLatLon = (lat: number, lon: number): string => `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
 
-const weekdayLabel = (dayOfWeek: number): string => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayOfWeek] ?? `Day ${dayOfWeek}`;
+const weekdayLabel = (locale: AppLanguage, dayOfWeek: number): string =>
+  [
+    t(locale, "common.sun"),
+    t(locale, "common.mon"),
+    t(locale, "common.tue"),
+    t(locale, "common.wed"),
+    t(locale, "common.thu"),
+    t(locale, "common.fri"),
+    t(locale, "common.sat")
+  ][dayOfWeek] ?? `${t(locale, "common.day")} ${dayOfWeek}`;
 
 const getTimelineCategory = (eventType: string): Exclude<TimelineFilter, "ALL"> => {
   const normalized = normalizeToken(eventType);
@@ -756,32 +768,32 @@ const isPastDue = (job: Job): boolean => {
   return windowEnd < Date.now() && !["COMPLETED", "CANCELLED"].includes(workflowState);
 };
 
-const getAudienceLabel = (audience: MessageAudience): string => {
+const getAudienceLabel = (locale: AppLanguage, audience: MessageAudience): string => {
   if (audience === "WORKER") {
-    return "Tech";
+    return t(locale, "messages.audience.tech");
   }
   if (audience === "CLIENT") {
-    return "Customer";
+    return t(locale, "messages.audience.customer");
   }
-  return "Both";
+  return t(locale, "messages.audience.both");
 };
 
-const formatSenderRole = (role: string | null | undefined): string => {
+const formatSenderRole = (locale: AppLanguage, role: string | null | undefined): string => {
   const normalized = normalizeToken(role ?? "");
   if (normalized === "CLIENT") {
-    return "Customer";
+    return t(locale, "messages.audience.customer");
   }
   if (normalized === "WORKER") {
-    return "Tech";
+    return t(locale, "messages.audience.tech");
   }
   if (normalized === "DISPATCH" || normalized === "ADMIN") {
-    return "Dispatch";
+    return t(locale, "messages.audience.dispatch");
   }
-  return "Participant";
+  return t(locale, "messages.audience.participant");
 };
 
-const formatMessageSender = (message: Message): string => {
-  const roleLabel = formatSenderRole(message.senderRole);
+const formatMessageSender = (locale: AppLanguage, message: Message): string => {
+  const roleLabel = formatSenderRole(locale, message.senderRole);
   const name = message.senderName?.trim();
   if (name) {
     return `${name} (${roleLabel})`;
@@ -792,13 +804,13 @@ const formatMessageSender = (message: Message): string => {
 const getMessageTranslationLabel = (message: Message, locale: AppLanguage): string | null => {
   const status = normalizeToken(message.translationStatus ?? "NONE");
   if (status === "READY") {
-    return locale === "LAO" ? "ແປອັດຕະໂນມັດ" : "Auto-translated";
+    return t(locale, "messages.translationReady");
   }
   if (status === "PENDING") {
-    return locale === "LAO" ? "ກໍາລັງແປ" : "Translating";
+    return t(locale, "messages.translationPending");
   }
   if (status === "FAILED") {
-    return locale === "LAO" ? "ການແປລົ້ມເຫຼວ" : "Translation failed";
+    return t(locale, "messages.translationFailed");
   }
   return null;
 };
@@ -896,13 +908,17 @@ function App() {
   const [rescheduleEndLocal, setRescheduleEndLocal] = useState("");
   const [paymentConfirmAmount, setPaymentConfirmAmount] = useState("0");
   const [paymentRejectReasonCode, setPaymentRejectReasonCode] = useState("amount_mismatch");
-  const [disputeDecisionReason, setDisputeDecisionReason] = useState("Reviewed by dispatch");
+  const [disputeDecisionReason, setDisputeDecisionReason] = useState(() =>
+    t(getInitialAppLanguage(), "dispute.defaultDecisionReason")
+  );
   const [disputeResolutionType, setDisputeResolutionType] = useState("partial_refund");
-  const [disputeResolutionSummary, setDisputeResolutionSummary] = useState(
-    "Offer partial refund and close the dispute."
+  const [disputeResolutionSummary, setDisputeResolutionSummary] = useState(() =>
+    t(getInitialAppLanguage(), "dispute.defaultResolutionSummary")
   );
   const [requestMoreInfoTargetRole, setRequestMoreInfoTargetRole] = useState("client");
-  const [requestMoreInfoMessage, setRequestMoreInfoMessage] = useState("Please provide additional dispute details.");
+  const [requestMoreInfoMessage, setRequestMoreInfoMessage] = useState(() =>
+    t(getInitialAppLanguage(), "dispute.defaultRequestMoreInfoMessage")
+  );
   const overrideReasonInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
 
@@ -931,10 +947,10 @@ function App() {
 
   const selectedWorkerLabel = useMemo(() => {
     if (!selectedWorkerId) {
-      return "Select from candidates";
+      return t(appLanguage, "assignment.selectCandidateFirst");
     }
     return workerLabelById.get(selectedWorkerId) ?? selectedWorkerId;
-  }, [selectedWorkerId, workerLabelById]);
+  }, [appLanguage, selectedWorkerId, workerLabelById]);
 
   const dispatchActionButtons = useMemo(
     () =>
@@ -1221,9 +1237,11 @@ function App() {
       signals.push({
         id: "overdue",
         level: "CRITICAL",
-        label: "Overdue schedule window",
-        detail: `Job should have completed by ${new Date(selectedJob.scheduleWindowEnd!).toLocaleString()}`,
-        actionHint: "Review worker status and re-route immediately"
+        label: t(appLanguage, "signals.overdue.label"),
+        detail: t(appLanguage, "signals.overdue.detail", {
+          time: new Date(selectedJob.scheduleWindowEnd!).toLocaleString()
+        }),
+        actionHint: t(appLanguage, "signals.overdue.hint")
       });
     }
 
@@ -1232,9 +1250,9 @@ function App() {
       signals.push({
         id: "stale-unassigned",
         level: "WARNING",
-        label: "Unassigned for over 2 hours",
-        detail: "This request has been waiting in queue",
-        actionHint: "Recompute and assign best nearby skilled worker"
+        label: t(appLanguage, "signals.stale.label"),
+        detail: t(appLanguage, "signals.stale.detail"),
+        actionHint: t(appLanguage, "signals.stale.hint")
       });
     }
 
@@ -1242,9 +1260,9 @@ function App() {
       signals.push({
         id: "no-candidates",
         level: "WARNING",
-        label: "No candidates scored yet",
-        detail: "Candidate table is empty for this job",
-        actionHint: "Run Recompute Candidates"
+        label: t(appLanguage, "signals.noCandidates.label"),
+        detail: t(appLanguage, "signals.noCandidates.detail"),
+        actionHint: t(appLanguage, "signals.noCandidates.hint")
       });
     }
 
@@ -1253,9 +1271,9 @@ function App() {
       signals.push({
         id: "customer-message",
         level: "INFO",
-        label: "Latest message from customer",
+        label: t(appLanguage, "signals.customerMessage.label"),
         detail: latestMessage.body.length > 120 ? `${latestMessage.body.slice(0, 117)}...` : latestMessage.body,
-        actionHint: "Respond in Messages panel"
+        actionHint: t(appLanguage, "signals.customerMessage.hint")
       });
     }
 
@@ -1263,14 +1281,14 @@ function App() {
       signals.push({
         id: "healthy",
         level: "INFO",
-        label: "No active dispatch alerts",
-        detail: "Current job state looks healthy",
-        actionHint: "Monitor timeline and scheduling"
+        label: t(appLanguage, "signals.healthy.label"),
+        detail: t(appLanguage, "signals.healthy.detail"),
+        actionHint: t(appLanguage, "signals.healthy.hint")
       });
     }
 
     return signals;
-  }, [candidates.length, messages, selectedJob]);
+  }, [appLanguage, candidates.length, messages, selectedJob]);
 
   const loadQueue = useCallback(async () => {
     if (!session) return;
@@ -1295,11 +1313,11 @@ function App() {
       setLastRefreshAt(new Date().toISOString());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Queue refresh failed");
+      setError(err instanceof Error ? err.message : t(appLanguage, "error.queueRefreshFailed"));
     } finally {
       setIsRefreshing(false);
     }
-  }, [session]);
+  }, [appLanguage, session]);
 
   const loadOperationsView = useCallback(async () => {
     if (!session) {
@@ -1317,9 +1335,9 @@ function App() {
       setMapOverview(mapPayload);
       setCalendar(calendarPayload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Operations map/calendar refresh failed");
+      setError(err instanceof Error ? err.message : t(appLanguage, "error.opsRefreshFailed"));
     }
-  }, [mapScope, session]);
+  }, [appLanguage, mapScope, session]);
 
   const loadJobPanels = useCallback(
     async (jobId: string | null = selectedJobId) => {
@@ -1370,7 +1388,7 @@ function App() {
         );
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Job panel refresh failed");
+        setError(err instanceof Error ? err.message : t(appLanguage, "error.jobPanelRefreshFailed"));
       }
     },
     [appLanguage, messageTranslationDisplay, selectedJobId, session]
@@ -1468,7 +1486,7 @@ function App() {
       setSession({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message : t(appLanguage, "error.loginFailed"));
     }
   };
 
@@ -1488,9 +1506,9 @@ function App() {
       await refreshPanelsAfterMutation();
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Recompute failed");
+      setError(err instanceof Error ? err.message : t(appLanguage, "error.recomputeFailed"));
     }
-  }, [selectedJobId, session]);
+  }, [appLanguage, selectedJobId, session]);
 
   const onAssign = useCallback(async () => {
     if (!session || !selectedJobId || !selectedWorkerId) return;
@@ -1499,9 +1517,9 @@ function App() {
       await refreshPanelsAfterMutation();
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Assign failed");
+      setError(err instanceof Error ? err.message : t(appLanguage, "error.assignFailed"));
     }
-  }, [selectedJobId, selectedWorkerId, session]);
+  }, [appLanguage, selectedJobId, selectedWorkerId, session]);
 
   const onOverride = useCallback(async () => {
     if (!session || !selectedJobId || !selectedWorkerId || !overrideReason.trim()) return;
@@ -1511,9 +1529,9 @@ function App() {
       await refreshPanelsAfterMutation();
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Override failed");
+      setError(err instanceof Error ? err.message : t(appLanguage, "error.overrideFailed"));
     }
-  }, [overrideReason, selectedJobId, selectedWorkerId, session]);
+  }, [appLanguage, overrideReason, selectedJobId, selectedWorkerId, session]);
 
   const onRunJobAction = useCallback(
     async (action: string, payload: Record<string, unknown>) => {
@@ -1523,10 +1541,14 @@ function App() {
         await refreshPanelsAfterMutation();
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : `Action ${action} failed`);
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(appLanguage, "error.actionFailed", { action })
+        );
       }
     },
-    [selectedJobId, session]
+    [appLanguage, selectedJobId, session]
   );
 
   const onPrioritizeJob = useCallback(async () => {
@@ -1573,14 +1595,14 @@ function App() {
       }
     }
     if (Object.keys(patch).length === 0) {
-      setError("Set at least one request field change before applying audit edit.");
+      setError(t(appLanguage, "error.requestEditNoChange"));
       return;
     }
     await onRunJobAction("EDIT_REQUEST_FIELDS_WITH_AUDIT", {
       requestPatch: patch,
       audit: { reasonCode: "dispatcher_override" }
     });
-  }, [onRunJobAction, requestPatchDescription, requestPatchLanguage, requestPatchUrgency, selectedJob, selectedJobActionSet]);
+  }, [appLanguage, onRunJobAction, requestPatchDescription, requestPatchLanguage, requestPatchUrgency, selectedJob, selectedJobActionSet]);
 
   const onRescheduleJob = useCallback(async () => {
     if (!selectedJobActionSet.has("RESCHEDULE")) {
@@ -1589,18 +1611,18 @@ function App() {
     const startAt = localDateTimeInputToIso(rescheduleStartLocal);
     const endAt = localDateTimeInputToIso(rescheduleEndLocal);
     if (!startAt || !endAt) {
-      setError("Select valid schedule start and end times.");
+      setError(t(appLanguage, "error.rescheduleInvalid"));
       return;
     }
     if (Date.parse(endAt) <= Date.parse(startAt)) {
-      setError("Schedule end must be after the start time.");
+      setError(t(appLanguage, "error.rescheduleOrder"));
       return;
     }
     await onRunJobAction("RESCHEDULE", {
       schedule: { startAt, endAt },
       audit: { reasonCode: "dispatcher_override" }
     });
-  }, [onRunJobAction, rescheduleEndLocal, rescheduleStartLocal, selectedJobActionSet]);
+  }, [appLanguage, onRunJobAction, rescheduleEndLocal, rescheduleStartLocal, selectedJobActionSet]);
 
   const onConfirmPayment = useCallback(async () => {
     if (!selectedJobActionSet.has("CONFIRM_PAYMENT")) {
@@ -1608,7 +1630,7 @@ function App() {
     }
     const confirmedAmount = Number(paymentConfirmAmount);
     if (!Number.isFinite(confirmedAmount) || confirmedAmount < 0) {
-      setError("Enter a valid confirmed payment amount.");
+      setError(t(appLanguage, "error.confirmPaymentAmountInvalid"));
       return;
     }
     await onRunJobAction("CONFIRM_PAYMENT", {
@@ -1617,7 +1639,7 @@ function App() {
         confirmedAt: new Date().toISOString()
       }
     });
-  }, [onRunJobAction, paymentConfirmAmount, selectedJobActionSet]);
+  }, [appLanguage, onRunJobAction, paymentConfirmAmount, selectedJobActionSet]);
 
   const onRejectPaymentProof = useCallback(async () => {
     if (!selectedJobActionSet.has("REJECT_PAYMENT_PROOF")) {
@@ -1648,7 +1670,7 @@ function App() {
     }
     const summary = disputeResolutionSummary.trim();
     if (!summary) {
-      setError("Resolution summary is required.");
+      setError(t(appLanguage, "error.resolutionSummaryRequired"));
       return;
     }
     await onRunJobAction(action, {
@@ -1657,10 +1679,10 @@ function App() {
         summary
       },
       dispute: {
-        decisionReason: disputeDecisionReason.trim() || "Resolution proposed by dispatch"
+        decisionReason: disputeDecisionReason.trim() || t(appLanguage, "dispute.defaultResolutionReason")
       }
     });
-  }, [disputeDecisionReason, disputeResolutionSummary, disputeResolutionType, onRunJobAction, selectedJobActionSet]);
+  }, [appLanguage, disputeDecisionReason, disputeResolutionSummary, disputeResolutionType, onRunJobAction, selectedJobActionSet]);
 
   const onRejectDispute = useCallback(async () => {
     if (!selectedJobActionSet.has("REJECT_DISPUTE")) {
@@ -1668,10 +1690,10 @@ function App() {
     }
     await onRunJobAction("REJECT_DISPUTE", {
       dispute: {
-        decisionReason: disputeDecisionReason.trim() || "Rejected after dispatch review"
+        decisionReason: disputeDecisionReason.trim() || t(appLanguage, "dispute.defaultRejectReason")
       }
     });
-  }, [disputeDecisionReason, onRunJobAction, selectedJobActionSet]);
+  }, [appLanguage, disputeDecisionReason, onRunJobAction, selectedJobActionSet]);
 
   const onRequestMoreInfo = useCallback(async () => {
     if (!selectedJobActionSet.has("REQUEST_MORE_INFO")) {
@@ -1679,7 +1701,7 @@ function App() {
     }
     const message = requestMoreInfoMessage.trim();
     if (!message) {
-      setError("Request-more-info message cannot be empty.");
+      setError(t(appLanguage, "error.requestMoreInfoEmpty"));
       return;
     }
     await onRunJobAction("REQUEST_MORE_INFO", {
@@ -1688,7 +1710,7 @@ function App() {
         message
       }
     });
-  }, [onRunJobAction, requestMoreInfoMessage, requestMoreInfoTargetRole, selectedJobActionSet]);
+  }, [appLanguage, onRunJobAction, requestMoreInfoMessage, requestMoreInfoTargetRole, selectedJobActionSet]);
 
   const onSendMessage = useCallback(async () => {
     if (!session || !selectedJobId || !messageDraft.trim()) return;
@@ -1701,7 +1723,7 @@ function App() {
       await loadJobPanels(selectedJobId);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Send message failed");
+      setError(err instanceof Error ? err.message : t(appLanguage, "error.sendMessageFailed"));
     }
   }, [appLanguage, loadJobPanels, messageAudience, messageDraft, selectedJobId, session]);
 
@@ -1851,7 +1873,7 @@ function App() {
             >
               {LANGUAGE_OPTIONS.map((language) => (
                 <option key={language} value={language}>
-                  {formatLanguageCode(language)}
+                  {formatLanguageCode(appLanguage, language)}
                 </option>
               ))}
             </select>
@@ -2000,10 +2022,10 @@ function App() {
                   {formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}
                 </small>
                 <small>
-                  {t(appLanguage, "queue.languageLabel")}: {formatLanguageCode(job.languagePreference)} ·
+                  {t(appLanguage, "queue.languageLabel")}: {formatLanguageCode(appLanguage, job.languagePreference)} ·
                 </small>
                 <small>
-                  {t(appLanguage, "queue.scheduleLabel")}: {inferSchedulePreference(job)} · {getWindowLabel(job)}
+                  {t(appLanguage, "queue.scheduleLabel")}: {inferSchedulePreference(appLanguage, job)} · {getWindowLabel(appLanguage, job)}
                 </small>
               </button>
             </li>
@@ -2023,7 +2045,7 @@ function App() {
                 <p><strong>{t(appLanguage, "assignment.status")}:</strong> {getJobStatusLabel(selectedJob)}</p>
                 <p><strong>{t(appLanguage, "assignment.workflow")}:</strong> {selectedJob.workflowState ?? "-"}</p>
                 <p><strong>{t(appLanguage, "assignment.urgency")}:</strong> {selectedJob.urgency}</p>
-                <p><strong>{t(appLanguage, "assignment.language")}:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
+                <p><strong>{t(appLanguage, "assignment.language")}:</strong> {formatLanguageCode(appLanguage, selectedJob.languagePreference)}</p>
                 <p>
                   <strong>{t(appLanguage, "assignment.readReceipts")}:</strong>{" "}
                   {t(appLanguage, "assignment.readReceiptsSummary", {
@@ -2033,11 +2055,11 @@ function App() {
                   })}
                 </p>
                 <p>
-                  <strong>{t(appLanguage, "assignment.schedulePreference")}:</strong> {inferSchedulePreference(selectedJob)}
+                  <strong>{t(appLanguage, "assignment.schedulePreference")}:</strong> {inferSchedulePreference(appLanguage, selectedJob)}
                 </p>
                 <p>
                   <strong>{t(appLanguage, "assignment.window")}:</strong>{" "}
-                  {getWindowLabel(selectedJob)}
+                  {getWindowLabel(appLanguage, selectedJob)}
                 </p>
                 <p><strong>{t(appLanguage, "assignment.selectedWorker")}:</strong> <span data-testid="selected-worker-id">{selectedWorkerLabel}</span></p>
               </div>
@@ -2097,7 +2119,7 @@ function App() {
                         <option value="UNCHANGED">{t(appLanguage, "common.noChange")}</option>
                         {LANGUAGE_OPTIONS.map((language) => (
                           <option key={language} value={language}>
-                            {formatLanguageCode(language)}
+                            {formatLanguageCode(appLanguage, language)}
                           </option>
                         ))}
                         <option value="NONE">{t(appLanguage, "common.clearLanguage")}</option>
@@ -2241,7 +2263,7 @@ function App() {
                   <p><strong>{t(appLanguage, "assignment.status")}:</strong> {getJobStatusLabel(selectedJob)}</p>
                   <p><strong>{t(appLanguage, "assignment.workflow")}:</strong> {selectedJob.workflowState ?? "-"}</p>
                   <p><strong>{t(appLanguage, "assignment.urgency")}:</strong> {selectedJob.urgency}</p>
-                  <p><strong>{t(appLanguage, "assignment.language")}:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
+                  <p><strong>{t(appLanguage, "assignment.language")}:</strong> {formatLanguageCode(appLanguage, selectedJob.languagePreference)}</p>
                   <p><strong>{t(appLanguage, "context.skills")}:</strong> {selectedJob.requiredSkills.join(", ") || t(appLanguage, "common.none")}</p>
                   <p><strong>{t(appLanguage, "context.personality")}:</strong> {selectedJob.personalityPreferences.join(", ") || t(appLanguage, "common.none")}</p>
                   <p>
@@ -2255,23 +2277,23 @@ function App() {
                     </p>
                     <p>
                       {t(appLanguage, "context.messagesUnread")}: {selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0} · {t(appLanguage, "context.lastRead")}{" "}
-                      {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.messages?.lastReadAt)}
+                      {formatOptionalTimestamp(appLanguage, selectedJob.readReceiptsSummary?.messages?.lastReadAt)}
                     </p>
                     <p>
                       {t(appLanguage, "context.changeOrdersUnread")}: {selectedJob.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0} · {t(appLanguage, "context.lastRead")}{" "}
-                      {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.changeOrders?.lastReadAt)}
+                      {formatOptionalTimestamp(appLanguage, selectedJob.readReceiptsSummary?.changeOrders?.lastReadAt)}
                     </p>
                     <p>
                       {t(appLanguage, "context.paymentUnread")}: {selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0} · {t(appLanguage, "context.lastRead")}{" "}
-                      {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.paymentRequests?.lastReadAt)}
+                      {formatOptionalTimestamp(appLanguage, selectedJob.readReceiptsSummary?.paymentRequests?.lastReadAt)}
                     </p>
                   </div>
                   <p>
-                    <strong>{t(appLanguage, "assignment.schedulePreference")}:</strong> {inferSchedulePreference(selectedJob)}
+                    <strong>{t(appLanguage, "assignment.schedulePreference")}:</strong> {inferSchedulePreference(appLanguage, selectedJob)}
                   </p>
                   <p>
                     <strong>{t(appLanguage, "assignment.window")}:</strong>{" "}
-                    {getWindowLabel(selectedJob)}
+                    {getWindowLabel(appLanguage, selectedJob)}
                   </p>
                 </>
               ) : (
@@ -2531,8 +2553,8 @@ function App() {
                       return (
                         <article key={`${dayGroup.dayKey}-${thread.senderUserId}-${thread.startedAt}-${index}`} className="message-thread">
                           <header>
-                            <strong>{formatMessageSender(senderPreview)}</strong>
-                            <span className="message-tag">{getAudienceLabel(thread.audience)}</span>
+                            <strong>{formatMessageSender(appLanguage, senderPreview)}</strong>
+                            <span className="message-tag">{getAudienceLabel(appLanguage, thread.audience)}</span>
                             <span>{new Date(thread.startedAt).toLocaleTimeString()}</span>
                           </header>
                           <div className="message-thread-lines">
@@ -2784,7 +2806,7 @@ function App() {
                     <strong>{t(appLanguage, "ops.availability")}:</strong>{" "}
                     {worker.availability.length > 0
                       ? worker.availability
-                          .map((slot) => `${weekdayLabel(slot.dayOfWeek)} ${slot.startTime}-${slot.endTime}`)
+                          .map((slot) => `${weekdayLabel(appLanguage, slot.dayOfWeek)} ${slot.startTime}-${slot.endTime}`)
                           .join(", ")
                       : t(appLanguage, "common.notSet")}
                   </p>
