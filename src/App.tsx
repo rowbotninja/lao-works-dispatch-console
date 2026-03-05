@@ -1843,7 +1843,7 @@ function App() {
         <h1>{t(appLanguage, "topbar.title")}</h1>
         <div className="topbar-actions">
           <label className="topbar-language">
-            Console language
+            {t(appLanguage, "topbar.consoleLanguage")}
             <select
               aria-label="Console language"
               value={appLanguage}
@@ -1858,7 +1858,7 @@ function App() {
           </label>
           <small>
             {lastRefreshAt
-              ? `Last refresh: ${new Date(lastRefreshAt).toLocaleTimeString()}`
+              ? t(appLanguage, "topbar.lastRefresh", { time: new Date(lastRefreshAt).toLocaleTimeString() })
               : t(appLanguage, "topbar.lastRefreshWaiting")}
           </small>
           <button
@@ -1878,14 +1878,14 @@ function App() {
         <section className="shortcut-panel" aria-label="Keyboard shortcuts">
           <h2>{t(appLanguage, "shortcuts.title")}</h2>
           <div className="shortcut-grid">
-            <p><kbd>j</kbd>/<kbd>k</kbd> Move queue selection</p>
-            <p><kbd>r</kbd> Recompute candidates</p>
-            <p><kbd>a</kbd> Assign selected candidate</p>
-            <p><kbd>o</kbd> Focus override reason</p>
-            <p><kbd>m</kbd> Focus message draft</p>
-            <p><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> Send message</p>
-            <p><kbd>1-5</kbd> Timeline signal filters</p>
-            <p><kbd>?</kbd> Toggle this panel</p>
+            <p><kbd>j</kbd>/<kbd>k</kbd> {t(appLanguage, "shortcuts.queueMove")}</p>
+            <p><kbd>r</kbd> {t(appLanguage, "shortcuts.recompute")}</p>
+            <p><kbd>a</kbd> {t(appLanguage, "shortcuts.assign")}</p>
+            <p><kbd>o</kbd> {t(appLanguage, "shortcuts.override")}</p>
+            <p><kbd>m</kbd> {t(appLanguage, "shortcuts.message")}</p>
+            <p><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> {t(appLanguage, "shortcuts.send")}</p>
+            <p><kbd>1-5</kbd> {t(appLanguage, "shortcuts.filters")}</p>
+            <p><kbd>?</kbd> {t(appLanguage, "shortcuts.toggle")}</p>
           </div>
         </section>
       )}
@@ -1920,7 +1920,7 @@ function App() {
           <label>
             {t(appLanguage, "filter.status")}
             <select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
-              <option value="ALL">All</option>
+              <option value="ALL">{t(appLanguage, "common.all")}</option>
               {WORKFLOW_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {formatToken(status)}
@@ -1931,7 +1931,7 @@ function App() {
           <label>
             {t(appLanguage, "filter.urgency")}
             <select aria-label="Urgency filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value as UrgencyFilter)}>
-              <option value="ALL">All</option>
+              <option value="ALL">{t(appLanguage, "common.all")}</option>
               {URGENCY_LEVELS.map((urgency) => (
                 <option key={urgency} value={urgency}>
                   {formatToken(urgency)}
@@ -1942,16 +1942,16 @@ function App() {
           <label>
             {t(appLanguage, "filter.language")}
             <select aria-label="Language filter" value={languageFilter} onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)}>
-              <option value="ALL">All</option>
-              <option value="ENG">English (ENG)</option>
-              <option value="LAO">Lao (LAO)</option>
-              <option value="NONE">Not set</option>
+              <option value="ALL">{t(appLanguage, "common.all")}</option>
+              <option value="ENG">{t(appLanguage, "common.englishCode")}</option>
+              <option value="LAO">{t(appLanguage, "common.laoCode")}</option>
+              <option value="NONE">{t(appLanguage, "common.notSet")}</option>
             </select>
           </label>
           <label>
             {t(appLanguage, "filter.skill")}
             <select aria-label="Skill filter" value={skillFilter} onChange={(event) => setSkillFilter(event.target.value)}>
-              <option value="ALL">All</option>
+              <option value="ALL">{t(appLanguage, "common.all")}</option>
               {skillOptions.map((skill) => (
                 <option key={skill} value={skill}>
                   {formatToken(skill)}
@@ -1962,7 +1962,7 @@ function App() {
           <label>
             {t(appLanguage, "filter.personality")}
             <select aria-label="Personality filter" value={personalityFilter} onChange={(event) => setPersonalityFilter(event.target.value)}>
-              <option value="ALL">All</option>
+              <option value="ALL">{t(appLanguage, "common.all")}</option>
               {personalityTagOptions.map((tag) => (
                 <option key={tag} value={tag}>
                   {formatToken(tag)}
@@ -1987,23 +1987,23 @@ function App() {
               <button className={job.id === selectedJobId ? "job active" : "job"} onClick={() => setSelectedJobId(job.id)}>
                 <div className="job-head">
                   <strong>{formatJobHeadline(job)}</strong>
-                  {isPastDue(job) && <span className="signal-pill critical">Overdue</span>}
+                  {isPastDue(job) && <span className="signal-pill critical">{t(appLanguage, "queue.overdue")}</span>}
                 </div>
                 <div className="job-meta">
                   <span className="badge">{getJobStatusLabel(job)}</span>
                   <span className="badge">{job.urgency}</span>
                   <span className="badge">{normalizeLanguageCode(job.languagePreference) ?? "NO_LANG"}</span>
-                  <span className="badge">{job.requiredSkills.length} skills</span>
-                  {getDispatchUnreadCount(job) > 0 && <span className="badge">Unread {getDispatchUnreadCount(job)}</span>}
+                  <span className="badge">{t(appLanguage, "queue.skills", { count: String(job.requiredSkills.length) })}</span>
+                  {getDispatchUnreadCount(job) > 0 && <span className="badge">{t(appLanguage, "queue.unread", { count: String(getDispatchUnreadCount(job)) })}</span>}
                 </div>
                 <small>
                   {formatToken(job.jobType)} · {new Date(job.createdAt).toLocaleString()}
                 </small>
                 <small>
-                  Language: {formatLanguageCode(job.languagePreference)} ·
+                  {t(appLanguage, "queue.languageLabel")}: {formatLanguageCode(job.languagePreference)} ·
                 </small>
                 <small>
-                  Schedule: {inferSchedulePreference(job)} · {getWindowLabel(job)}
+                  {t(appLanguage, "queue.scheduleLabel")}: {inferSchedulePreference(job)} · {getWindowLabel(job)}
                 </small>
               </button>
             </li>
@@ -2017,99 +2017,101 @@ function App() {
           {selectedJob ? (
             <>
               <div className="job-summary compact">
-                <p><strong>Job:</strong> {formatJobHeadline(selectedJob)}</p>
-                <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
-                <p data-testid="selected-job-id"><strong>Internal Ref:</strong> {selectedJob.id}</p>
-                <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
-                <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
-                <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
-                <p><strong>Language:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
+                <p><strong>{t(appLanguage, "assignment.job")}:</strong> {formatJobHeadline(selectedJob)}</p>
+                <p><strong>{t(appLanguage, "assignment.customer")}:</strong> {formatCustomerLabel(selectedJob)}</p>
+                <p data-testid="selected-job-id"><strong>{t(appLanguage, "assignment.internalRef")}:</strong> {selectedJob.id}</p>
+                <p><strong>{t(appLanguage, "assignment.status")}:</strong> {getJobStatusLabel(selectedJob)}</p>
+                <p><strong>{t(appLanguage, "assignment.workflow")}:</strong> {selectedJob.workflowState ?? "-"}</p>
+                <p><strong>{t(appLanguage, "assignment.urgency")}:</strong> {selectedJob.urgency}</p>
+                <p><strong>{t(appLanguage, "assignment.language")}:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
                 <p>
-                  <strong>Read Receipts:</strong>{" "}
-                  Msg unread {selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0} ·
-                  Change orders unread {selectedJob.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0} ·
-                  Payment unread {selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0}
+                  <strong>{t(appLanguage, "assignment.readReceipts")}:</strong>{" "}
+                  {t(appLanguage, "assignment.readReceiptsSummary", {
+                    messages: String(selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0),
+                    changeOrders: String(selectedJob.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0),
+                    payment: String(selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0)
+                  })}
                 </p>
                 <p>
-                  <strong>Schedule Preference:</strong> {inferSchedulePreference(selectedJob)}
+                  <strong>{t(appLanguage, "assignment.schedulePreference")}:</strong> {inferSchedulePreference(selectedJob)}
                 </p>
                 <p>
-                  <strong>Window:</strong>{" "}
+                  <strong>{t(appLanguage, "assignment.window")}:</strong>{" "}
                   {getWindowLabel(selectedJob)}
                 </p>
-                <p><strong>Selected Worker:</strong> <span data-testid="selected-worker-id">{selectedWorkerLabel}</span></p>
+                <p><strong>{t(appLanguage, "assignment.selectedWorker")}:</strong> <span data-testid="selected-worker-id">{selectedWorkerLabel}</span></p>
               </div>
 
               <div className="actions stacked">
-                <button onClick={onRecompute}>Recompute Candidates</button>
-                <button onClick={onAssign} disabled={!selectedWorkerId}>Assign Selected Candidate</button>
+                <button onClick={onRecompute}>{t(appLanguage, "assignment.recompute")}</button>
+                <button onClick={onAssign} disabled={!selectedWorkerId}>{t(appLanguage, "assignment.assignSelected")}</button>
                 <input
                   ref={overrideReasonInputRef}
-                  placeholder="Override reason"
+                  placeholder={t(appLanguage, "assignment.overrideReason")}
                   value={overrideReason}
                   onChange={(event) => setOverrideReason(event.target.value)}
                 />
                 <button onClick={onOverride} disabled={!selectedWorkerId || !overrideReason.trim()}>
-                  Override Selected Candidate
+                  {t(appLanguage, "assignment.overrideSelected")}
                 </button>
-                {selectedJobActionSet.has("PRIORITIZE_JOB") && (
+                      {selectedJobActionSet.has("PRIORITIZE_JOB") && (
                   <div className="workflow-action-inline">
                     <label>
-                      Priority level
+                      {t(appLanguage, "assignment.priorityLevel")}
                       <select value={priorityLevel} onChange={(event) => setPriorityLevel(event.target.value)}>
-                        <option value="LOW">Low</option>
-                        <option value="NORMAL">Normal</option>
-                        <option value="HIGH">High</option>
-                        <option value="CRITICAL">Critical</option>
+                        <option value="LOW">{t(appLanguage, "common.low")}</option>
+                        <option value="NORMAL">{t(appLanguage, "common.normal")}</option>
+                        <option value="HIGH">{t(appLanguage, "common.high")}</option>
+                        <option value="CRITICAL">{t(appLanguage, "common.critical")}</option>
                       </select>
                     </label>
                     <button className="secondary" onClick={() => void onPrioritizeJob()}>
-                      Prioritize Job
+                      {t(appLanguage, "assignment.prioritizeJob")}
                     </button>
                   </div>
                 )}
                 {selectedJobActionSet.has("EDIT_REQUEST_FIELDS_WITH_AUDIT") && (
                   <div className="workflow-action-inline">
                     <label>
-                      Request description
+                      {t(appLanguage, "assignment.requestDescription")}
                       <input
                         value={requestPatchDescription}
                         onChange={(event) => setRequestPatchDescription(event.target.value)}
                       />
                     </label>
                     <label>
-                      Request urgency
+                      {t(appLanguage, "assignment.requestUrgency")}
                       <select value={requestPatchUrgency} onChange={(event) => setRequestPatchUrgency(event.target.value)}>
-                        <option value="LOW">Low</option>
-                        <option value="MEDIUM">Medium</option>
-                        <option value="HIGH">High</option>
-                        <option value="CRITICAL">Critical</option>
+                        <option value="LOW">{t(appLanguage, "common.low")}</option>
+                        <option value="MEDIUM">{t(appLanguage, "common.medium")}</option>
+                        <option value="HIGH">{t(appLanguage, "common.high")}</option>
+                        <option value="CRITICAL">{t(appLanguage, "common.critical")}</option>
                       </select>
                     </label>
                     <label>
-                      Request language
+                      {t(appLanguage, "assignment.requestLanguage")}
                       <select
                         value={requestPatchLanguage}
                         onChange={(event) => setRequestPatchLanguage(event.target.value as RequestPatchLanguage)}
                       >
-                        <option value="UNCHANGED">No change</option>
+                        <option value="UNCHANGED">{t(appLanguage, "common.noChange")}</option>
                         {LANGUAGE_OPTIONS.map((language) => (
                           <option key={language} value={language}>
                             {formatLanguageCode(language)}
                           </option>
                         ))}
-                        <option value="NONE">Clear language</option>
+                        <option value="NONE">{t(appLanguage, "common.clearLanguage")}</option>
                       </select>
                     </label>
                     <button className="secondary" onClick={() => void onEditRequestWithAudit()}>
-                      Apply Request Edit (Audit)
+                      {t(appLanguage, "assignment.applyRequestEdit")}
                     </button>
                   </div>
                 )}
                 {selectedJobActionSet.has("RESCHEDULE") && (
                   <div className="workflow-action-inline">
                     <label>
-                      Start
+                      {t(appLanguage, "assignment.start")}
                       <input
                         type="datetime-local"
                         value={rescheduleStartLocal}
@@ -2117,7 +2119,7 @@ function App() {
                       />
                     </label>
                     <label>
-                      End
+                      {t(appLanguage, "assignment.end")}
                       <input
                         type="datetime-local"
                         value={rescheduleEndLocal}
@@ -2125,13 +2127,13 @@ function App() {
                       />
                     </label>
                     <button className="secondary" onClick={() => void onRescheduleJob()}>
-                      Apply Reschedule
+                      {t(appLanguage, "assignment.applyReschedule")}
                     </button>
                   </div>
                 )}
                 {dispatchActionButtons.length > 0 && (
                   <div className="workflow-action-stack">
-                    <small>Workflow actions</small>
+                    <small>{t(appLanguage, "assignment.workflowActions")}</small>
                     <div className="workflow-action-grid">
                       {dispatchActionButtons.map(({ action, payload }) => (
                         <button
@@ -2139,7 +2141,7 @@ function App() {
                           className="secondary"
                           onClick={() => payload && void onRunJobAction(action, payload)}
                           disabled={!payload}
-                          title={!payload ? "Select a candidate first" : undefined}
+                          title={!payload ? t(appLanguage, "assignment.selectCandidateFirst") : undefined}
                         >
                           {formatToken(action)}
                         </button>
@@ -2149,15 +2151,15 @@ function App() {
                 )}
               </div>
 
-              <h3>Candidates</h3>
+              <h3>{t(appLanguage, "assignment.candidates")}</h3>
               <table>
                 <thead>
                   <tr>
-                    <th>Rank</th>
-                    <th>Worker</th>
-                    <th>Score</th>
-                    <th>Action</th>
-                    <th>Breakdown</th>
+                    <th>{t(appLanguage, "candidate.rank")}</th>
+                    <th>{t(appLanguage, "candidate.worker")}</th>
+                    <th>{t(appLanguage, "candidate.score")}</th>
+                    <th>{t(appLanguage, "candidate.action")}</th>
+                    <th>{t(appLanguage, "candidate.breakdown")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2174,13 +2176,13 @@ function App() {
                           className={selectedWorkerId === candidate.workerId ? "secondary active" : "secondary"}
                           onClick={() => setSelectedWorkerId(candidate.workerId)}
                         >
-                          {selectedWorkerId === candidate.workerId ? "Selected" : "Select"}
+                          {selectedWorkerId === candidate.workerId ? t(appLanguage, "candidate.selected") : t(appLanguage, "candidate.select")}
                         </button>
                       </td>
                       <td>
                         <div className="breakdown-stack">
                           <p className="candidate-final-score">
-                            Final: {getCandidateFinalScore(candidate.scoreBreakdown, candidate.score).toFixed(2)}
+                            {t(appLanguage, "candidate.final")}: {getCandidateFinalScore(candidate.scoreBreakdown, candidate.score).toFixed(2)}
                           </p>
                           {getCandidateFactors(candidate.scoreBreakdown).map((factor) => (
                             <div key={factor.label} className="factor-row">
@@ -2199,7 +2201,7 @@ function App() {
               </table>
             </>
           ) : (
-            <p>Select a job to inspect details.</p>
+            <p>{t(appLanguage, "assignment.selectJob")}</p>
           )}
         </section>
 
@@ -2230,67 +2232,67 @@ function App() {
 
           {focusPanel === "DETAILS" && (
             <div className="job-summary expanded">
-              <h2>Job Detail</h2>
+              <h2>{t(appLanguage, "context.jobDetail")}</h2>
               {selectedJob ? (
                 <>
-                  <p><strong>Headline:</strong> {formatJobHeadline(selectedJob)}</p>
-                  <p><strong>Customer:</strong> {formatCustomerLabel(selectedJob)}</p>
-                  <p><strong>Internal Ref:</strong> {selectedJob.id.slice(0, 8)}</p>
-                  <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)}</p>
-                  <p><strong>Workflow:</strong> {selectedJob.workflowState ?? "-"}</p>
-                  <p><strong>Urgency:</strong> {selectedJob.urgency}</p>
-                  <p><strong>Language:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
-                  <p><strong>Skills:</strong> {selectedJob.requiredSkills.join(", ") || "None"}</p>
-                  <p><strong>Personality:</strong> {selectedJob.personalityPreferences.join(", ") || "None"}</p>
+                  <p><strong>{t(appLanguage, "context.headline")}:</strong> {formatJobHeadline(selectedJob)}</p>
+                  <p><strong>{t(appLanguage, "assignment.customer")}:</strong> {formatCustomerLabel(selectedJob)}</p>
+                  <p><strong>{t(appLanguage, "assignment.internalRef")}:</strong> {selectedJob.id.slice(0, 8)}</p>
+                  <p><strong>{t(appLanguage, "assignment.status")}:</strong> {getJobStatusLabel(selectedJob)}</p>
+                  <p><strong>{t(appLanguage, "assignment.workflow")}:</strong> {selectedJob.workflowState ?? "-"}</p>
+                  <p><strong>{t(appLanguage, "assignment.urgency")}:</strong> {selectedJob.urgency}</p>
+                  <p><strong>{t(appLanguage, "assignment.language")}:</strong> {formatLanguageCode(selectedJob.languagePreference)}</p>
+                  <p><strong>{t(appLanguage, "context.skills")}:</strong> {selectedJob.requiredSkills.join(", ") || t(appLanguage, "common.none")}</p>
+                  <p><strong>{t(appLanguage, "context.personality")}:</strong> {selectedJob.personalityPreferences.join(", ") || t(appLanguage, "common.none")}</p>
                   <p>
-                    <strong>Assigned Worker:</strong>{" "}
-                    {selectedJob.assignedWorkerDisplayName ?? selectedJob.assignedWorkerId ?? "Not assigned"}
+                    <strong>{t(appLanguage, "context.assignedWorker")}:</strong>{" "}
+                    {selectedJob.assignedWorkerDisplayName ?? selectedJob.assignedWorkerId ?? t(appLanguage, "common.notAssigned")}
                   </p>
                   <div className="read-receipt-summary">
                     <p>
-                      <strong>Dispatch Read Receipts:</strong>{" "}
-                      {getDispatchUnreadCount(selectedJob)} unread total
+                      <strong>{t(appLanguage, "context.dispatchReadReceipts")}:</strong>{" "}
+                      {t(appLanguage, "context.unreadTotal", { count: String(getDispatchUnreadCount(selectedJob)) })}
                     </p>
                     <p>
-                      Messages: {selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0} unread · last read{" "}
+                      {t(appLanguage, "context.messagesUnread")}: {selectedJob.readReceiptsSummary?.messages?.unreadForDispatch ?? 0} · {t(appLanguage, "context.lastRead")}{" "}
                       {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.messages?.lastReadAt)}
                     </p>
                     <p>
-                      Change orders: {selectedJob.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0} unread · last read{" "}
+                      {t(appLanguage, "context.changeOrdersUnread")}: {selectedJob.readReceiptsSummary?.changeOrders?.unreadForDispatch ?? 0} · {t(appLanguage, "context.lastRead")}{" "}
                       {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.changeOrders?.lastReadAt)}
                     </p>
                     <p>
-                      Payment requests: {selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0} unread · last read{" "}
+                      {t(appLanguage, "context.paymentUnread")}: {selectedJob.readReceiptsSummary?.paymentRequests?.unreadForDispatch ?? 0} · {t(appLanguage, "context.lastRead")}{" "}
                       {formatOptionalTimestamp(selectedJob.readReceiptsSummary?.paymentRequests?.lastReadAt)}
                     </p>
                   </div>
                   <p>
-                    <strong>Schedule Preference:</strong> {inferSchedulePreference(selectedJob)}
+                    <strong>{t(appLanguage, "assignment.schedulePreference")}:</strong> {inferSchedulePreference(selectedJob)}
                   </p>
                   <p>
-                    <strong>Window:</strong>{" "}
+                    <strong>{t(appLanguage, "assignment.window")}:</strong>{" "}
                     {getWindowLabel(selectedJob)}
                   </p>
                 </>
               ) : (
-                <p>Select a job to inspect details.</p>
+                <p>{t(appLanguage, "assignment.selectJob")}</p>
               )}
             </div>
           )}
 
           {focusPanel === "PAYMENTS_DISPUTES" && (
             <div className="job-summary expanded">
-              <h2>Payments & Disputes</h2>
+              <h2>{t(appLanguage, "payments.title")}</h2>
               {selectedJob ? (
                 <>
-                  <p><strong>Job:</strong> {formatJobHeadline(selectedJob)}</p>
-                  <p><strong>Status:</strong> {getJobStatusLabel(selectedJob)} ({selectedJob.workflowState ?? "-"})</p>
+                  <p><strong>{t(appLanguage, "assignment.job")}:</strong> {formatJobHeadline(selectedJob)}</p>
+                  <p><strong>{t(appLanguage, "assignment.status")}:</strong> {getJobStatusLabel(selectedJob)} ({selectedJob.workflowState ?? "-"})</p>
 
-                  <h3>Latest Change Order</h3>
+                  <h3>{t(appLanguage, "payments.latestChangeOrder")}</h3>
                   {latestChangeOrderAction && latestChangeOrderPayload ? (
                     <div className="payload-facts">
-                      <span className="payload-fact"><strong>Action:</strong> {formatToken(latestChangeOrderAction.action)}</span>
-                      <span className="payload-fact"><strong>At:</strong> {new Date(latestChangeOrderAction.event.createdAt).toLocaleString()}</span>
+                      <span className="payload-fact"><strong>{t(appLanguage, "payments.action")}:</strong> {formatToken(latestChangeOrderAction.action)}</span>
+                      <span className="payload-fact"><strong>{t(appLanguage, "payments.at")}:</strong> {new Date(latestChangeOrderAction.event.createdAt).toLocaleString()}</span>
                       {Object.entries(latestChangeOrderPayload).map(([key, value]) => (
                         <span key={`change-order-${key}`} className="payload-fact">
                           <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
@@ -2298,13 +2300,13 @@ function App() {
                       ))}
                     </div>
                   ) : (
-                    <p>No submitted change order payload yet.</p>
+                    <p>{t(appLanguage, "payments.noChangeOrder")}</p>
                   )}
 
-                  <h3>Latest Completion Evidence</h3>
+                  <h3>{t(appLanguage, "payments.latestCompletionEvidence")}</h3>
                   {latestWorkSubmissionAction && latestCompletionEvidence ? (
                     <div className="payload-facts">
-                      <span className="payload-fact"><strong>Submitted:</strong> {new Date(latestWorkSubmissionAction.event.createdAt).toLocaleString()}</span>
+                      <span className="payload-fact"><strong>{t(appLanguage, "payments.submitted")}:</strong> {new Date(latestWorkSubmissionAction.event.createdAt).toLocaleString()}</span>
                       {Object.entries(latestCompletionEvidence).map(([key, value]) => (
                         <span key={`completion-${key}`} className="payload-fact">
                           <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
@@ -2312,13 +2314,13 @@ function App() {
                       ))}
                     </div>
                   ) : (
-                    <p>No completion evidence payload yet.</p>
+                    <p>{t(appLanguage, "payments.noCompletionEvidence")}</p>
                   )}
 
-                  <h3>Latest Payment Proof</h3>
+                  <h3>{t(appLanguage, "payments.latestPaymentProof")}</h3>
                   {latestPaymentProofAction && latestPaymentProof ? (
                     <div className="payload-facts">
-                      <span className="payload-fact"><strong>Submitted:</strong> {new Date(latestPaymentProofAction.event.createdAt).toLocaleString()}</span>
+                      <span className="payload-fact"><strong>{t(appLanguage, "payments.submitted")}:</strong> {new Date(latestPaymentProofAction.event.createdAt).toLocaleString()}</span>
                       {Object.entries(latestPaymentProof).map(([key, value]) => (
                         <span key={`payment-${key}`} className="payload-fact">
                           <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
@@ -2326,7 +2328,7 @@ function App() {
                       ))}
                     </div>
                   ) : (
-                    <p>No payment proof payload yet.</p>
+                    <p>{t(appLanguage, "payments.noPaymentProof")}</p>
                   )}
 
                   {(selectedJobActionSet.has("CONFIRM_PAYMENT") || selectedJobActionSet.has("REJECT_PAYMENT_PROOF")) && (
@@ -2334,7 +2336,7 @@ function App() {
                       {selectedJobActionSet.has("CONFIRM_PAYMENT") && (
                         <>
                           <label>
-                            Confirm amount
+                            {t(appLanguage, "payments.confirmAmount")}
                             <input
                               type="number"
                               min={0}
@@ -2343,21 +2345,21 @@ function App() {
                             />
                           </label>
                           <button className="secondary" onClick={() => void onConfirmPayment()}>
-                            Confirm Payment
+                            {t(appLanguage, "payments.confirmPayment")}
                           </button>
                         </>
                       )}
                       {selectedJobActionSet.has("REJECT_PAYMENT_PROOF") && (
                         <>
                           <label>
-                            Reject reason
+                            {t(appLanguage, "payments.rejectReason")}
                             <select value={paymentRejectReasonCode} onChange={(event) => setPaymentRejectReasonCode(event.target.value)}>
-                              <option value="amount_mismatch">Amount mismatch</option>
-                              <option value="unreadable">Unreadable proof</option>
-                              <option value="wrong_recipient">Wrong recipient</option>
-                              <option value="duplicate">Duplicate proof</option>
-                              <option value="suspected_fraud">Suspected fraud</option>
-                              <option value="other">Other</option>
+                              <option value="amount_mismatch">{t(appLanguage, "payments.rejectReasonAmountMismatch")}</option>
+                              <option value="unreadable">{t(appLanguage, "payments.rejectReasonUnreadable")}</option>
+                              <option value="wrong_recipient">{t(appLanguage, "payments.rejectReasonWrongRecipient")}</option>
+                              <option value="duplicate">{t(appLanguage, "payments.rejectReasonDuplicate")}</option>
+                              <option value="suspected_fraud">{t(appLanguage, "payments.rejectReasonFraud")}</option>
+                              <option value="other">{t(appLanguage, "payments.rejectReasonOther")}</option>
                             </select>
                           </label>
                           <button className="secondary" onClick={() => void onRejectPaymentProof()}>
@@ -2368,11 +2370,11 @@ function App() {
                     </div>
                   )}
 
-                  <h3>Latest Dispute</h3>
+                  <h3>{t(appLanguage, "payments.latestDispute")}</h3>
                   {latestDisputeAction && latestDisputePayload ? (
                     <div className="payload-facts">
-                      <span className="payload-fact"><strong>Action:</strong> {formatToken(latestDisputeAction.action)}</span>
-                      <span className="payload-fact"><strong>At:</strong> {new Date(latestDisputeAction.event.createdAt).toLocaleString()}</span>
+                      <span className="payload-fact"><strong>{t(appLanguage, "payments.action")}:</strong> {formatToken(latestDisputeAction.action)}</span>
+                      <span className="payload-fact"><strong>{t(appLanguage, "payments.at")}:</strong> {new Date(latestDisputeAction.event.createdAt).toLocaleString()}</span>
                       {Object.entries(latestDisputePayload).map(([key, value]) => (
                         <span key={`dispute-${key}`} className="payload-fact">
                           <strong>{toFactLabel(key)}:</strong> {formatScalar(value)}
@@ -2380,15 +2382,15 @@ function App() {
                       ))}
                     </div>
                   ) : (
-                    <p>No dispute payload yet.</p>
+                    <p>{t(appLanguage, "payments.noDispute")}</p>
                   )}
                   {latestResolutionOfferPayload && (
                     <div className="payload-facts">
                       <span className="payload-fact">
-                        <strong>Resolution Type:</strong> {formatScalar(latestResolutionOfferPayload.type)}
+                        <strong>{t(appLanguage, "payments.resolutionType")}:</strong> {formatScalar(latestResolutionOfferPayload.type)}
                       </span>
                       <span className="payload-fact">
-                        <strong>Resolution Summary:</strong> {formatScalar(latestResolutionOfferPayload.summary)}
+                        <strong>{t(appLanguage, "payments.resolutionSummary")}:</strong> {formatScalar(latestResolutionOfferPayload.summary)}
                       </span>
                     </div>
                   )}
@@ -2399,68 +2401,68 @@ function App() {
                     selectedJobActionSet.has("APPROVE_DISPUTE") ||
                     selectedJobActionSet.has("REJECT_DISPUTE")) && (
                     <div className="workflow-action-stack">
-                      <small>Dispute actions</small>
+                      <small>{t(appLanguage, "payments.disputeActions")}</small>
                       {selectedJobActionSet.has("BEGIN_DISPUTE_REVIEW") && (
                         <button className="secondary" onClick={() => void onBeginDisputeReview()}>
-                          Begin Dispute Review
+                          {t(appLanguage, "payments.beginReview")}
                         </button>
                       )}
                       {selectedJobActionSet.has("REQUEST_MORE_INFO") && (
                         <div className="workflow-action-inline">
                           <label>
-                            Target
+                            {t(appLanguage, "payments.target")}
                             <select value={requestMoreInfoTargetRole} onChange={(event) => setRequestMoreInfoTargetRole(event.target.value)}>
-                              <option value="client">Client</option>
-                              <option value="worker">Worker</option>
+                              <option value="client">{t(appLanguage, "payments.targetClient")}</option>
+                              <option value="worker">{t(appLanguage, "payments.targetWorker")}</option>
                             </select>
                           </label>
                           <label>
-                            Message
+                            {t(appLanguage, "payments.message")}
                             <input
                               value={requestMoreInfoMessage}
                               onChange={(event) => setRequestMoreInfoMessage(event.target.value)}
                             />
                           </label>
                           <button className="secondary" onClick={() => void onRequestMoreInfo()}>
-                            Request More Info
+                            {t(appLanguage, "payments.requestMoreInfo")}
                           </button>
                         </div>
                       )}
                       {(selectedJobActionSet.has("OFFER_DISPUTE_RESOLUTION") || selectedJobActionSet.has("APPROVE_DISPUTE")) && (
                         <div className="workflow-action-inline">
                           <label>
-                            Resolution type
+                            {t(appLanguage, "payments.resolutionType")}
                             <select
                               value={disputeResolutionType}
                               onChange={(event) => setDisputeResolutionType(event.target.value)}
                             >
-                              <option value="partial_refund">Partial refund</option>
-                              <option value="full_refund">Full refund</option>
-                              <option value="remediation">Remediation visit</option>
-                              <option value="credit">Service credit</option>
-                              <option value="other">Other</option>
+                              <option value="partial_refund">{t(appLanguage, "payments.resolutionPartialRefund")}</option>
+                              <option value="full_refund">{t(appLanguage, "payments.resolutionFullRefund")}</option>
+                              <option value="remediation">{t(appLanguage, "payments.resolutionRemediation")}</option>
+                              <option value="credit">{t(appLanguage, "payments.resolutionCredit")}</option>
+                              <option value="other">{t(appLanguage, "payments.rejectReasonOther")}</option>
                             </select>
                           </label>
                           <label>
-                            Resolution summary
+                            {t(appLanguage, "payments.resolutionSummary")}
                             <input
                               value={disputeResolutionSummary}
                               onChange={(event) => setDisputeResolutionSummary(event.target.value)}
                             />
                           </label>
                           <button className="secondary" onClick={() => void onOfferDisputeResolution()}>
-                            Offer Resolution
+                            {t(appLanguage, "payments.offerResolution")}
                           </button>
                         </div>
                       )}
                       {selectedJobActionSet.has("REJECT_DISPUTE") && (
                         <div className="workflow-action-inline">
                           <label>
-                            Decision reason
+                            {t(appLanguage, "payments.decisionReason")}
                             <input value={disputeDecisionReason} onChange={(event) => setDisputeDecisionReason(event.target.value)} />
                           </label>
                           <button className="secondary" onClick={() => void onRejectDispute()}>
-                            Reject Dispute
+                            {t(appLanguage, "payments.rejectDispute")}
                           </button>
                         </div>
                       )}
@@ -2478,18 +2480,18 @@ function App() {
                       ))}
                     </ul>
                   ) : (
-                    <p>No read receipts recorded yet.</p>
+                    <p>{t(appLanguage, "payments.noReadReceipts")}</p>
                   )}
 
                   {latestRequestInfoPayload && (
                     <p>
-                      <strong>Latest Info Request:</strong> {formatScalar(latestRequestInfoPayload.message)} (
+                      <strong>{t(appLanguage, "payments.latestInfoRequest")}:</strong> {formatScalar(latestRequestInfoPayload.message)} (
                       {formatScalar(latestRequestInfoPayload.targetRole)})
                     </p>
                   )}
                 </>
               ) : (
-                <p>Select a job to inspect payment and dispute workflow.</p>
+                <p>{t(appLanguage, "payments.selectJob")}</p>
               )}
             </div>
           )}
@@ -2505,9 +2507,9 @@ function App() {
                   value={messageTranslationDisplay}
                   onChange={(event) => setMessageTranslationDisplay(event.target.value as TranslationDisplay)}
                 >
-                  <option value="ORIGINAL">{appLanguage === "LAO" ? "ຕົ້ນສະບັບ" : "Original"}</option>
-                  <option value="TRANSLATED">{appLanguage === "LAO" ? "ຂໍ້ຄວາມແປ" : "Translated"}</option>
-                  <option value="BOTH">{appLanguage === "LAO" ? "ທັງສອງ" : "Both"}</option>
+                  <option value="ORIGINAL">{t(appLanguage, "messages.originalOption")}</option>
+                  <option value="TRANSLATED">{t(appLanguage, "messages.translatedOption")}</option>
+                  <option value="BOTH">{t(appLanguage, "messages.bothOption")}</option>
                 </select>
               </div>
               <div className="messages grouped">
@@ -2550,7 +2552,7 @@ function App() {
                                   {shouldShowBoth ? (
                                     <>
                                       <br />
-                                      <small>{appLanguage === "LAO" ? "ຕົ້ນສະບັບ" : "Original"}: {bodyOriginal}</small>
+                                      <small>{t(appLanguage, "messages.originalLabel")}: {bodyOriginal}</small>
                                     </>
                                   ) : null}
                                   {translationLabel ? (
@@ -2630,16 +2632,16 @@ function App() {
                       <div className="timeline-inline-actions">
                         {workerId && workerLabel && (
                           <button className="chip secondary" onClick={() => setSelectedWorkerId(workerId)}>
-                            Select {workerLabel}
+                            {t(appLanguage, "timeline.selectWorker", { worker: workerLabel })}
                           </button>
                         )}
                         {reason && (
                           <button className="chip secondary" onClick={() => onUseTimelineReason(reason)}>
-                            Use reason
+                            {t(appLanguage, "timeline.useReason")}
                           </button>
                         )}
                         <button className="chip secondary" onClick={() => onQuoteTimelineEvent(event)}>
-                          Quote in message
+                          {t(appLanguage, "timeline.quote")}
                         </button>
                       </div>
                     </li>
@@ -2653,7 +2655,7 @@ function App() {
 
       <section className="panel ops-shell">
         <div className="ops-nav">
-          <h2>Operations</h2>
+          <h2>{t(appLanguage, "ops.title")}</h2>
           <div className="ops-tab-switch">
             <button className={opsTab === "ROUTING" ? "chip active" : "chip"} onClick={() => setOpsTab("ROUTING")}>{t(appLanguage, "ops.routing")}</button>
             <button className={opsTab === "SCHEDULING" ? "chip active" : "chip"} onClick={() => setOpsTab("SCHEDULING")}>{t(appLanguage, "ops.scheduling")}</button>
@@ -2677,7 +2679,11 @@ function App() {
               </div>
               <p className="queue-count">
                 {mapOverview
-                  ? `${mapOverview.jobs.length} jobs · ${mapOverview.workers.length} workers · scope ${formatToken(mapOverview.scope ?? mapScope)}`
+                  ? t(appLanguage, "ops.mapSummary", {
+                      jobs: String(mapOverview.jobs.length),
+                      workers: String(mapOverview.workers.length),
+                      scope: formatToken(mapOverview.scope ?? mapScope)
+                    })
                   : t(appLanguage, "map.loading")}
               </p>
             </div>
@@ -2726,7 +2732,7 @@ function App() {
                           <p>{formatLatLon(point.lat, point.lon)}</p>
                           {point.kind === "JOB" && (
                             <button className="secondary" onClick={() => setSelectedJobId(point.id.replace("job-", ""))}>
-                              Open Job
+                              {t(appLanguage, "ops.openJob")}
                             </button>
                           )}
                         </div>
@@ -2739,7 +2745,7 @@ function App() {
               )}
             </div>
 
-            <h3>Optimal Next-Job Paths</h3>
+            <h3>{t(appLanguage, "ops.optimalPaths")}</h3>
             <ul className="route-list">
               {(mapOverview?.routeSuggestions ?? []).slice(0, 10).map((route) => (
                 <li key={`${route.workerId}-${route.toJobId}`}>
@@ -2747,11 +2753,11 @@ function App() {
                   <button className="linkish" onClick={() => setSelectedJobId(route.toJobId)}>
                     {route.toJobDescription}
                   </button>
-                  <small> · {route.distanceKm.toFixed(1)} km · ~{route.estimatedDriveMinutes} min</small>
+                  <small>{t(appLanguage, "ops.routeDistanceEta", { km: route.distanceKm.toFixed(1), minutes: String(route.estimatedDriveMinutes) })}</small>
                 </li>
               ))}
               {mapOverview && mapOverview.routeSuggestions.length === 0 && (
-                <li><small>No route suggestions available.</small></li>
+                <li><small>{t(appLanguage, "ops.noRouteSuggestions")}</small></li>
               )}
             </ul>
           </div>
@@ -2765,7 +2771,7 @@ function App() {
                 {new Date(calendar.range.from).toLocaleDateString()} - {new Date(calendar.range.to).toLocaleDateString()}
               </p>
             ) : (
-              <p className="queue-count">Loading schedule...</p>
+              <p className="queue-count">{t(appLanguage, "ops.loadingSchedule")}</p>
             )}
             <div className="schedule-workers">
               {(calendar?.workers ?? []).map((worker) => (
@@ -2775,29 +2781,29 @@ function App() {
                     <span>{formatToken(worker.tier)}</span>
                   </header>
                   <p>
-                    <strong>Availability:</strong>{" "}
+                    <strong>{t(appLanguage, "ops.availability")}:</strong>{" "}
                     {worker.availability.length > 0
                       ? worker.availability
                           .map((slot) => `${weekdayLabel(slot.dayOfWeek)} ${slot.startTime}-${slot.endTime}`)
                           .join(", ")
-                      : "Not set"}
+                      : t(appLanguage, "common.notSet")}
                   </p>
                   <p>
-                    <strong>Time Off:</strong>{" "}
+                    <strong>{t(appLanguage, "ops.timeOff")}:</strong>{" "}
                     {worker.timeOff.length > 0
                       ? worker.timeOff
                           .map((timeOff) => `${new Date(timeOff.startAt).toLocaleDateString()}-${new Date(timeOff.endAt).toLocaleDateString()}`)
                           .join(", ")
-                      : "None"}
+                      : t(appLanguage, "common.none")}
                   </p>
-                  <p><strong>Scheduled Jobs:</strong> {worker.scheduledJobs.length}</p>
+                  <p><strong>{t(appLanguage, "ops.scheduledJobs")}:</strong> {worker.scheduledJobs.length}</p>
                   <ul>
                     {worker.scheduledJobs.slice(0, 3).map((job) => (
                       <li key={job.id}>
                         <button className="linkish" onClick={() => setSelectedJobId(job.id)}>
                           {removeSchedulingMetaFromDescription(job.description) || job.description}
                         </button>{" "}
-                        <small>{job.scheduleWindowStart ? new Date(job.scheduleWindowStart).toLocaleString() : "No window"}</small>
+                        <small>{job.scheduleWindowStart ? new Date(job.scheduleWindowStart).toLocaleString() : t(appLanguage, "common.noWindow")}</small>
                       </li>
                     ))}
                   </ul>
@@ -2805,7 +2811,7 @@ function App() {
               ))}
             </div>
 
-            <h3>Unassigned Jobs</h3>
+            <h3>{t(appLanguage, "ops.unassignedJobs")}</h3>
             <ul className="route-list">
               {(calendar?.unassignedJobs ?? []).slice(0, 10).map((job) => (
                 <li key={job.id}>
@@ -2816,7 +2822,7 @@ function App() {
                 </li>
               ))}
               {calendar && calendar.unassignedJobs.length === 0 && (
-                <li><small>No unassigned jobs in range.</small></li>
+                <li><small>{t(appLanguage, "ops.noUnassignedInRange")}</small></li>
               )}
             </ul>
           </div>
