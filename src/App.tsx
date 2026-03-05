@@ -17,6 +17,7 @@ import {
   runJobAction
 } from "./api";
 import { Candidate, DispatchCalendar, DispatchMapOverview, Job, JobReadReceipt, MapScope, Message, TimelineEvent } from "./types";
+import { t } from "./i18n";
 
 const LeafletMapContainer = MapContainer as unknown as (props: any) => JSX.Element;
 const LeafletTileLayer = TileLayer as unknown as (props: any) => JSX.Element;
@@ -779,16 +780,16 @@ const formatMessageSender = (message: Message): string => {
   return roleLabel;
 };
 
-const getMessageTranslationLabel = (message: Message): string | null => {
+const getMessageTranslationLabel = (message: Message, locale: AppLanguage): string | null => {
   const status = normalizeToken(message.translationStatus ?? "NONE");
   if (status === "READY") {
-    return "Auto-translated";
+    return locale === "LAO" ? "ແປອັດຕະໂນມັດ" : "Auto-translated";
   }
   if (status === "PENDING") {
-    return "Translating";
+    return locale === "LAO" ? "ກໍາລັງແປ" : "Translating";
   }
   if (status === "FAILED") {
-    return "Translation failed";
+    return locale === "LAO" ? "ການແປລົ້ມເຫຼວ" : "Translation failed";
   }
   return null;
 };
@@ -1808,18 +1809,18 @@ function App() {
     return (
       <main className="auth-shell">
         <section className="auth-card">
-          <h1>Lao-Works Dispatch</h1>
-          <p>Sign in with dispatcher credentials.</p>
+          <h1>{t(appLanguage, "auth.title")}</h1>
+          <p>{t(appLanguage, "auth.subtitle")}</p>
           <form onSubmit={onLogin}>
             <label>
-              Identifier
+              {t(appLanguage, "auth.identifier")}
               <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} />
             </label>
             <label>
-              Password
+              {t(appLanguage, "auth.password")}
               <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
             </label>
-            <button type="submit">Sign In</button>
+            <button type="submit">{t(appLanguage, "auth.signIn")}</button>
           </form>
           {error && <p className="error">{error}</p>}
         </section>
@@ -1830,7 +1831,7 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <h1>Dispatch Console</h1>
+        <h1>{t(appLanguage, "topbar.title")}</h1>
         <div className="topbar-actions">
           <label className="topbar-language">
             Console language
@@ -1849,16 +1850,16 @@ function App() {
           <small>
             {lastRefreshAt
               ? `Last refresh: ${new Date(lastRefreshAt).toLocaleTimeString()}`
-              : "Waiting for first refresh"}
+              : t(appLanguage, "topbar.lastRefreshWaiting")}
           </small>
           <button
             className={showShortcutHelp ? "secondary active" : "secondary"}
             onClick={() => setShowShortcutHelp((value) => !value)}
           >
-            Shortcuts (?)
+            {t(appLanguage, "topbar.shortcuts")}
           </button>
           <button onClick={() => void refreshPanelsAfterMutation()} disabled={isRefreshing}>
-            {isRefreshing ? "Refreshing..." : "Refresh"}
+            {isRefreshing ? t(appLanguage, "topbar.refreshing") : t(appLanguage, "topbar.refresh")}
           </button>
         </div>
       </header>
@@ -1866,7 +1867,7 @@ function App() {
       {error && <p className="error">{error}</p>}
       {showShortcutHelp && (
         <section className="shortcut-panel" aria-label="Keyboard shortcuts">
-          <h2>Keyboard Shortcuts</h2>
+          <h2>{t(appLanguage, "shortcuts.title")}</h2>
           <div className="shortcut-grid">
             <p><kbd>j</kbd>/<kbd>k</kbd> Move queue selection</p>
             <p><kbd>r</kbd> Recompute candidates</p>
@@ -1883,24 +1884,24 @@ function App() {
       <section className="panel queue-top">
         <div className="queue-top-header">
           <div>
-            <h2>Dispatch Queue</h2>
-            <p className="queue-count">Prioritize urgent and unassigned jobs first.</p>
+            <h2>{t(appLanguage, "queue.title")}</h2>
+            <p className="queue-count">{t(appLanguage, "queue.subtitle")}</p>
           </div>
           <div className="queue-summary-metrics">
             <article>
-              <span>Unassigned</span>
+              <span>{t(appLanguage, "queue.unassigned")}</span>
               <strong>{queueStats.requested}</strong>
             </article>
             <article>
-              <span>Assigned</span>
+              <span>{t(appLanguage, "queue.assigned")}</span>
               <strong>{queueStats.assigned}</strong>
             </article>
             <article>
-              <span>In Progress</span>
+              <span>{t(appLanguage, "queue.inProgress")}</span>
               <strong>{queueStats.inProgress}</strong>
             </article>
             <article>
-              <span>Urgent</span>
+              <span>{t(appLanguage, "queue.urgent")}</span>
               <strong>{queueStats.urgent}</strong>
             </article>
           </div>
@@ -1908,7 +1909,7 @@ function App() {
 
         <div className="queue-controls inline">
           <label>
-            Status
+            {t(appLanguage, "filter.status")}
             <select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
               <option value="ALL">All</option>
               {WORKFLOW_STATUSES.map((status) => (
@@ -1919,7 +1920,7 @@ function App() {
             </select>
           </label>
           <label>
-            Urgency
+            {t(appLanguage, "filter.urgency")}
             <select aria-label="Urgency filter" value={urgencyFilter} onChange={(event) => setUrgencyFilter(event.target.value as UrgencyFilter)}>
               <option value="ALL">All</option>
               {URGENCY_LEVELS.map((urgency) => (
@@ -1930,7 +1931,7 @@ function App() {
             </select>
           </label>
           <label>
-            Language
+            {t(appLanguage, "filter.language")}
             <select aria-label="Language filter" value={languageFilter} onChange={(event) => setLanguageFilter(event.target.value as LanguageFilter)}>
               <option value="ALL">All</option>
               <option value="ENG">English (ENG)</option>
@@ -1939,7 +1940,7 @@ function App() {
             </select>
           </label>
           <label>
-            Skill
+            {t(appLanguage, "filter.skill")}
             <select aria-label="Skill filter" value={skillFilter} onChange={(event) => setSkillFilter(event.target.value)}>
               <option value="ALL">All</option>
               {skillOptions.map((skill) => (
@@ -1950,7 +1951,7 @@ function App() {
             </select>
           </label>
           <label>
-            Personality
+            {t(appLanguage, "filter.personality")}
             <select aria-label="Personality filter" value={personalityFilter} onChange={(event) => setPersonalityFilter(event.target.value)}>
               <option value="ALL">All</option>
               {personalityTagOptions.map((tag) => (
@@ -1961,7 +1962,7 @@ function App() {
             </select>
           </label>
           <label>
-            Sort
+            {t(appLanguage, "filter.sort")}
             <select aria-label="Sort queue" value={queueSort} onChange={(event) => setQueueSort(event.target.value as QueueSort)}>
               <option value="NEWEST">Newest</option>
               <option value="OLDEST">Oldest</option>
@@ -2003,7 +2004,7 @@ function App() {
 
       <section className="dispatch-workbench-layout">
         <section className="panel assignment-panel">
-          <h2>Assignment Workbench</h2>
+          <h2>{t(appLanguage, "panel.assignment")}</h2>
           {selectedJob ? (
             <>
               <div className="job-summary compact">
@@ -2198,8 +2199,8 @@ function App() {
             <button className={focusPanel === "SIGNALS" ? "chip active" : "chip"} onClick={() => setFocusPanel("SIGNALS")}>Signals</button>
             <button className={focusPanel === "DETAILS" ? "chip active" : "chip"} onClick={() => setFocusPanel("DETAILS")}>Details</button>
             <button className={focusPanel === "PAYMENTS_DISPUTES" ? "chip active" : "chip"} onClick={() => setFocusPanel("PAYMENTS_DISPUTES")}>Payments & Disputes</button>
-            <button className={focusPanel === "MESSAGES" ? "chip active" : "chip"} onClick={() => setFocusPanel("MESSAGES")}>Messages</button>
-            <button className={focusPanel === "TIMELINE" ? "chip active" : "chip"} onClick={() => setFocusPanel("TIMELINE")}>Timeline</button>
+            <button className={focusPanel === "MESSAGES" ? "chip active" : "chip"} onClick={() => setFocusPanel("MESSAGES")}>{t(appLanguage, "panel.messages")}</button>
+            <button className={focusPanel === "TIMELINE" ? "chip active" : "chip"} onClick={() => setFocusPanel("TIMELINE")}>{t(appLanguage, "panel.timeline")}</button>
           </div>
 
           {focusPanel === "SIGNALS" && (
@@ -2457,7 +2458,7 @@ function App() {
                     </div>
                   )}
 
-                  <h3>Read Receipt Stream</h3>
+                  <h3>{t(appLanguage, "panel.readReceipts")}</h3>
                   {readReceipts.length > 0 ? (
                     <ul className="route-list">
                       {readReceipts.slice(0, 25).map((item) => (
@@ -2486,18 +2487,18 @@ function App() {
 
           {focusPanel === "MESSAGES" && (
             <div>
-              <h2>Messaging {selectedJob ? `· ${formatJobHeadline(selectedJob)}` : ""}</h2>
+              <h2>{t(appLanguage, "panel.messages")} {selectedJob ? `· ${formatJobHeadline(selectedJob)}` : ""}</h2>
               <div className="compose with-audience">
-                <label htmlFor="translation-display">Display mode</label>
+                <label htmlFor="translation-display">{t(appLanguage, "messages.displayMode")}</label>
                 <select
                   id="translation-display"
                   aria-label="Translation display mode"
                   value={messageTranslationDisplay}
                   onChange={(event) => setMessageTranslationDisplay(event.target.value as TranslationDisplay)}
                 >
-                  <option value="ORIGINAL">Original</option>
-                  <option value="TRANSLATED">Translated</option>
-                  <option value="BOTH">Both</option>
+                  <option value="ORIGINAL">{appLanguage === "LAO" ? "ຕົ້ນສະບັບ" : "Original"}</option>
+                  <option value="TRANSLATED">{appLanguage === "LAO" ? "ຂໍ້ຄວາມແປ" : "Translated"}</option>
+                  <option value="BOTH">{appLanguage === "LAO" ? "ທັງສອງ" : "Both"}</option>
                 </select>
               </div>
               <div className="messages grouped">
@@ -2525,7 +2526,7 @@ function App() {
                           </header>
                           <div className="message-thread-lines">
                             {thread.items.map((message) => {
-                              const translationLabel = getMessageTranslationLabel(message);
+                              const translationLabel = getMessageTranslationLabel(message, appLanguage);
                               const bodyOriginal = message.bodyOriginal ?? message.body;
                               const bodyTranslated = message.bodyTranslated ?? null;
                               const bodyDisplay = message.bodyDisplay ?? message.body;
@@ -2540,7 +2541,7 @@ function App() {
                                   {shouldShowBoth ? (
                                     <>
                                       <br />
-                                      <small>Original: {bodyOriginal}</small>
+                                      <small>{appLanguage === "LAO" ? "ຕົ້ນສະບັບ" : "Original"}: {bodyOriginal}</small>
                                     </>
                                   ) : null}
                                   {translationLabel ? (
@@ -2577,11 +2578,11 @@ function App() {
                   value={messageDraft}
                   onChange={(event) => setMessageDraft(event.target.value)}
                   onKeyDown={onMessageInputKeyDown}
-                  placeholder="Send a message to job thread"
+                  placeholder={t(appLanguage, "messages.placeholder")}
                   disabled={!selectedJobId}
                 />
                 <button onClick={onSendMessage} disabled={!selectedJobId || !messageDraft.trim()}>
-                  Send Message
+                  {t(appLanguage, "messages.send")}
                 </button>
               </div>
             </div>
@@ -2589,7 +2590,7 @@ function App() {
 
           {focusPanel === "TIMELINE" && (
             <>
-              <h2>Timeline</h2>
+              <h2>{t(appLanguage, "panel.timeline")}</h2>
               <div className="timeline-chips" role="group" aria-label="Timeline filters">
                 {TIMELINE_FILTERS.map((filter) => (
                   <button key={filter} className={timelineFilter === filter ? "chip active" : "chip"} onClick={() => setTimelineFilter(filter)}>

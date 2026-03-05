@@ -393,9 +393,9 @@ describe("Dispatch Console", () => {
       })
     );
 
-    await user.click(screen.getByRole("button", { name: "Messages" }));
-    await user.type(screen.getByPlaceholderText("Send a message to job thread"), "ສະບາຍດີ");
-    await user.click(screen.getByRole("button", { name: "Send Message" }));
+    await user.click(screen.getByRole("button", { name: /Messages|ຂໍ້ຄວາມ/i }));
+    await user.type(screen.getByPlaceholderText(/Send a message to job thread|ສົ່ງຂໍ້ຄວາມໃສ່ເທຣດວຽກ/i), "ສະບາຍດີ");
+    await user.click(screen.getByRole("button", { name: /Send Message|ສົ່ງຂໍ້ຄວາມ/i }));
     await waitFor(() =>
       expect(mockedApi.sendMessage).toHaveBeenCalledWith(
         "access-token",
