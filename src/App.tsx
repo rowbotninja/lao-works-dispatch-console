@@ -128,12 +128,7 @@ type AppLanguage = (typeof LANGUAGE_OPTIONS)[number];
 const DEFAULT_APP_LANGUAGE: AppLanguage = "ENG";
 const APP_LANGUAGE_STORAGE_KEY = "laoWorksDispatchAppLanguage";
 
-const MAP_SCOPES: Array<{ scope: MapScope; label: string; hint: string }> = [
-  { scope: "TODAY", label: "Today", hint: "Active and unscheduled jobs for today" },
-  { scope: "FUTURE", label: "Future", hint: "Upcoming scheduled jobs" },
-  { scope: "PAST", label: "Past", hint: "Missed and historical scheduled jobs" },
-  { scope: "ALL", label: "All", hint: "All active jobs regardless of date" }
-];
+const MAP_SCOPES: MapScope[] = ["TODAY", "FUTURE", "PAST", "ALL"];
 
 const DEFAULT_SKILLS = [
   "ELECTRICAL",
@@ -191,19 +186,33 @@ const URGENCY_SORT_PRIORITY: Record<string, number> = {
 
 const TIMELINE_FILTERS: TimelineFilter[] = ["ALL", "ASSIGNMENT", "LIFECYCLE", "MESSAGING", "SYSTEM"];
 
-const TIMELINE_FILTER_LABELS: Record<TimelineFilter, string> = {
-  ALL: "All",
-  ASSIGNMENT: "Assignment",
-  LIFECYCLE: "Lifecycle",
-  MESSAGING: "Messaging",
-  SYSTEM: "System"
+const timelineFilterLabelKey: Record<TimelineFilter, string> = {
+  ALL: "timeline.all",
+  ASSIGNMENT: "timeline.assignment",
+  LIFECYCLE: "timeline.lifecycle",
+  MESSAGING: "timeline.messaging",
+  SYSTEM: "timeline.system"
 };
 
-const MESSAGE_AUDIENCE_OPTIONS: Array<{ value: MessageAudience; label: string }> = [
-  { value: "BOTH", label: "Customer + Tech" },
-  { value: "WORKER", label: "Tech Only" },
-  { value: "CLIENT", label: "Customer Only" }
-];
+const audienceLabelKey: Record<MessageAudience, string> = {
+  BOTH: "audience.both",
+  WORKER: "audience.worker",
+  CLIENT: "audience.client"
+};
+
+const mapScopeLabelKey: Record<MapScope, string> = {
+  TODAY: "map.scope.today",
+  FUTURE: "map.scope.future",
+  PAST: "map.scope.past",
+  ALL: "map.scope.all"
+};
+
+const mapScopeHintKey: Record<MapScope, string> = {
+  TODAY: "map.hint.today",
+  FUTURE: "map.hint.future",
+  PAST: "map.hint.past",
+  ALL: "map.hint.all"
+};
 
 const normalizeToken = (value: string): string => value.trim().toUpperCase().replace(/\s+/g, "_");
 
@@ -1964,10 +1973,10 @@ function App() {
           <label>
             {t(appLanguage, "filter.sort")}
             <select aria-label="Sort queue" value={queueSort} onChange={(event) => setQueueSort(event.target.value as QueueSort)}>
-              <option value="NEWEST">Newest</option>
-              <option value="OLDEST">Oldest</option>
-              <option value="URGENCY">Urgency</option>
-              <option value="STATUS">Status</option>
+              <option value="NEWEST">{t(appLanguage, "sort.newest")}</option>
+              <option value="OLDEST">{t(appLanguage, "sort.oldest")}</option>
+              <option value="URGENCY">{t(appLanguage, "sort.urgency")}</option>
+              <option value="STATUS">{t(appLanguage, "sort.status")}</option>
             </select>
           </label>
         </div>
@@ -2196,16 +2205,16 @@ function App() {
 
         <section className="panel context-panel">
           <div className="context-nav" role="tablist" aria-label="Job context tabs">
-            <button className={focusPanel === "SIGNALS" ? "chip active" : "chip"} onClick={() => setFocusPanel("SIGNALS")}>Signals</button>
-            <button className={focusPanel === "DETAILS" ? "chip active" : "chip"} onClick={() => setFocusPanel("DETAILS")}>Details</button>
-            <button className={focusPanel === "PAYMENTS_DISPUTES" ? "chip active" : "chip"} onClick={() => setFocusPanel("PAYMENTS_DISPUTES")}>Payments & Disputes</button>
+            <button className={focusPanel === "SIGNALS" ? "chip active" : "chip"} onClick={() => setFocusPanel("SIGNALS")}>{t(appLanguage, "panel.signals")}</button>
+            <button className={focusPanel === "DETAILS" ? "chip active" : "chip"} onClick={() => setFocusPanel("DETAILS")}>{t(appLanguage, "panel.details")}</button>
+            <button className={focusPanel === "PAYMENTS_DISPUTES" ? "chip active" : "chip"} onClick={() => setFocusPanel("PAYMENTS_DISPUTES")}>{t(appLanguage, "panel.paymentsDisputes")}</button>
             <button className={focusPanel === "MESSAGES" ? "chip active" : "chip"} onClick={() => setFocusPanel("MESSAGES")}>{t(appLanguage, "panel.messages")}</button>
             <button className={focusPanel === "TIMELINE" ? "chip active" : "chip"} onClick={() => setFocusPanel("TIMELINE")}>{t(appLanguage, "panel.timeline")}</button>
           </div>
 
           {focusPanel === "SIGNALS" && (
             <div className="signal-list">
-              <h2>Dispatch Signals</h2>
+              <h2>{t(appLanguage, "panel.signals")}</h2>
               {dispatchSignals.map((signal) => (
                 <article key={signal.id} className={`signal-card ${signal.level.toLowerCase()}`}>
                   <header>
@@ -2567,9 +2576,9 @@ function App() {
                   onChange={(event) => setMessageAudience(event.target.value as MessageAudience)}
                   disabled={!selectedJobId}
                 >
-                  {MESSAGE_AUDIENCE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {(["BOTH", "WORKER", "CLIENT"] as MessageAudience[]).map((option) => (
+                    <option key={option} value={option}>
+                      {t(appLanguage, audienceLabelKey[option])}
                     </option>
                   ))}
                 </select>
@@ -2594,7 +2603,7 @@ function App() {
               <div className="timeline-chips" role="group" aria-label="Timeline filters">
                 {TIMELINE_FILTERS.map((filter) => (
                   <button key={filter} className={timelineFilter === filter ? "chip active" : "chip"} onClick={() => setTimelineFilter(filter)}>
-                    {TIMELINE_FILTER_LABELS[filter]} ({timelineCounts[filter]})
+                    {t(appLanguage, timelineFilterLabelKey[filter])} ({timelineCounts[filter]})
                   </button>
                 ))}
               </div>
@@ -2608,7 +2617,7 @@ function App() {
                     <li key={event.id} className="timeline-item">
                       <div className="timeline-item-head">
                         <strong>{event.eventType}</strong>
-                        <span className="timeline-tag">{TIMELINE_FILTER_LABELS[eventCategory]}</span>
+                        <span className="timeline-tag">{t(appLanguage, timelineFilterLabelKey[eventCategory])}</span>
                         <span>{new Date(event.createdAt).toLocaleString()}</span>
                       </div>
                       <div className="payload-facts">
@@ -2646,8 +2655,8 @@ function App() {
         <div className="ops-nav">
           <h2>Operations</h2>
           <div className="ops-tab-switch">
-            <button className={opsTab === "ROUTING" ? "chip active" : "chip"} onClick={() => setOpsTab("ROUTING")}>Routing</button>
-            <button className={opsTab === "SCHEDULING" ? "chip active" : "chip"} onClick={() => setOpsTab("SCHEDULING")}>Scheduling</button>
+            <button className={opsTab === "ROUTING" ? "chip active" : "chip"} onClick={() => setOpsTab("ROUTING")}>{t(appLanguage, "ops.routing")}</button>
+            <button className={opsTab === "SCHEDULING" ? "chip active" : "chip"} onClick={() => setOpsTab("SCHEDULING")}>{t(appLanguage, "ops.scheduling")}</button>
           </div>
         </div>
 
@@ -2657,19 +2666,19 @@ function App() {
               <div className="map-scope-selector" role="group" aria-label="Map time scope">
                 {MAP_SCOPES.map((scopeOption) => (
                   <button
-                    key={scopeOption.scope}
-                    className={mapScope === scopeOption.scope ? "chip active" : "chip"}
-                    onClick={() => setMapScope(scopeOption.scope)}
-                    title={scopeOption.hint}
+                    key={scopeOption}
+                    className={mapScope === scopeOption ? "chip active" : "chip"}
+                    onClick={() => setMapScope(scopeOption)}
+                    title={t(appLanguage, mapScopeHintKey[scopeOption])}
                   >
-                    {scopeOption.label}
+                    {t(appLanguage, mapScopeLabelKey[scopeOption])}
                   </button>
                 ))}
               </div>
               <p className="queue-count">
                 {mapOverview
                   ? `${mapOverview.jobs.length} jobs · ${mapOverview.workers.length} workers · scope ${formatToken(mapOverview.scope ?? mapScope)}`
-                  : "Loading map overview..."}
+                  : t(appLanguage, "map.loading")}
               </p>
             </div>
 
@@ -2726,7 +2735,7 @@ function App() {
                   ))}
                 </LeafletMapContainer>
               ) : (
-                <div className="map-empty-state">No map points available for selected scope.</div>
+                <div className="map-empty-state">{t(appLanguage, "map.empty")}</div>
               )}
             </div>
 
@@ -2750,7 +2759,7 @@ function App() {
 
         {opsTab === "SCHEDULING" && (
           <div className="ops-content">
-            <h3>Scheduling Calendar</h3>
+            <h3>{t(appLanguage, "ops.scheduling")}</h3>
             {calendar ? (
               <p className="queue-count">
                 {new Date(calendar.range.from).toLocaleDateString()} - {new Date(calendar.range.to).toLocaleDateString()}
