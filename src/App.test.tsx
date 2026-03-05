@@ -409,4 +409,26 @@ describe("Dispatch Console", () => {
       )
     );
   });
+
+  it("allows overriding message viewer language independently of console language", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
+    await waitFor(() =>
+      expect(mockedApi.getMessages).toHaveBeenCalledWith("access-token", "job-1", {
+        viewerLanguage: "ENG",
+        translationDisplay: "BOTH"
+      })
+    );
+
+    await user.click(screen.getByRole("button", { name: /Messages|ຂໍ້ຄວາມ/i }));
+    await user.selectOptions(screen.getByLabelText(/Message language|ພາສາຂໍ້ຄວາມ/i), "LAO");
+    await waitFor(() =>
+      expect(mockedApi.getMessages).toHaveBeenCalledWith("access-token", "job-1", {
+        viewerLanguage: "LAO",
+        translationDisplay: "BOTH"
+      })
+    );
+  });
 });
